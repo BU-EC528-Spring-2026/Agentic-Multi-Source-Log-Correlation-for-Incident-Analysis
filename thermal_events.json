@@ -1,0 +1,199 @@
+{
+    "thermal_events": [
+        {
+            "timestamp": "Jul 1 09:01:05",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 1 09:28:50",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 1 09:41:54",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 1 09:44:32",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 1 13:41:58",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 1 14:38:45",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 2 18:09:15",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 2 19:21:05",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 2 19:48:30",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 01:06:48",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 05:57:59",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 06:09:56",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 06:46:03",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 07:45:55",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 16:28:55",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 17:10:11",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 17:25:12",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 3 17:25:31",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 01:00:35",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 02:13:35",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 03:50:54",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 04:27:39",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 05:28:30",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 12:35:15",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 13:02:23",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 16:31:38",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 20:52:10",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 4 22:02:21",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 5 02:27:53",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 00:30:43",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 15:24:08",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 16:16:11",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 16:29:58",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 16:43:37",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 6 19:31:49",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 7 02:55:51",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 1 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 7 07:30:35",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 7 08:42:41",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        },
+        {
+            "timestamp": "Jul 7 20:52:49",
+            "component": "com.apple.CDScheduler",
+            "message": "Thermal pressure state: 0 Memory pressure state: 0"
+        }
+    ]
+}
