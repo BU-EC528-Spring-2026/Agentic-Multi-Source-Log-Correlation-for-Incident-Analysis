@@ -9,12 +9,12 @@ So this is strict, reproducible, and easy to extend.
 ---
 
 ## What this pipeline does (real data, full file)
-✅ Reads the **full** `mac_system_logs.csv` (no sampling)  
-✅ Normalizes timestamps → **epoch seconds (UTC)**  
-✅ Unifies events into a single schema: `{ts, source, message, level, fields}`  
-✅ Supports window-based alignment: events within **±Δ seconds**  
-✅ Runs the existing **thermal agent** on the full host dataset (Demo 1 focus)  
-✅ Outputs a structured incident report: `out/incident_report.json`
+Reads the **full** `mac_system_logs.csv` (no sampling)  
+Normalizes timestamps → **epoch seconds (UTC)**  
+Unifies events into a single schema: `{ts, source, message, level, fields}`  
+Supports window-based alignment: events within **±Δ seconds**  
+Runs the existing **thermal agent** on the full host dataset (Demo 1 focus)  
+Outputs a structured incident report: `out/incident_report.json`
 
 Optional:
 - Adds a second source via `--auth-jsonl` (auth logs JSONL).  
