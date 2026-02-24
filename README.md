@@ -1,66 +1,65 @@
-# Demo 1 — Omar’s Part (Ingestion + Normalization + Alignment)
+# LLM Reasoning
 
-This repo chunk is **my contribution** for Demo 1:
-I took Tahira’s macOS dataset (`mac_system_logs.csv`) and turned it into a **clean ingestion + normalization + alignment pipeline** that the rest of the multi-agent system can build on.
+## Pipeline
 
-If ingestion is messy, everything downstream becomes a guessing game.
-So this is strict, reproducible, and easy to extend.
+```text
+Mac_2k.log
+   |
+   v
+log_parser.py
+   |
+   v
+chunked parsed logs
+   |
+   v
+log_analyzer.py  (categorization, correlation)
+   |
+   v
+report.json
+```
 
----
+## Implementation 
 
-## What this pipeline does (real data, full file)
-Reads the **full** `mac_system_logs.csv` (no sampling)  
-Normalizes timestamps → **epoch seconds (UTC)**  
-Unifies events into a single schema: `{ts, source, message, level, fields}`  
-Supports window-based alignment: events within **±Δ seconds**  
-Runs the existing **thermal agent** on the full host dataset (Demo 1 focus)  
-Outputs a structured incident report: `out/incident_report.json`
+The implementation follows the official `ollama-python` sync client examples:
+- `Client(host=...)`
+- `client.chat(...)`
+- `format=<json_schema>` for structured outputs
 
-Optional:
-- Adds a second source via `--auth-jsonl` (auth logs JSONL).  
-  If you don’t have auth logs ready yet, the pipeline still runs host-only, but the interface is already there.
+This project uses the `chat()` workflow because the task is multi-step:
+1. chunk-level categorization
+2. cross-chunk correlation
 
----
+## Setup
 
-## Why this helps Demo 2 / the rest of the semester
-- Every future agent (auth/network/metrics) plugs into the same `Event` schema.
-- Correlation agent later can cite exact timestamps + events (traceability).
-- No one has to rewrite parsing logic again.
-
----
-
-## Run (host-only)
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-
-python -m src.cli run-demo1 --host-csv /path/to/mac_system_logs.csv --mac-year 2026 --window-seconds 120
+python3 -m pip install -r requirements.txt
 ```
 
-## Run (host + auth) — second source
+## Start Ollama
+
 ```bash
-python -m src.cli run-demo1 \
-  --host-csv /path/to/mac_system_logs.csv \
-  --auth-jsonl /path/to/auth.jsonl \
-  --mac-year 2026 \
-  --window-seconds 120
+ollama serve
+ollama pull llama3.1:8b
 ```
 
----
+## Run
 
-## Output
-- `out/incident_report.json` (structured, explainable)
-- Console preview:
-  - data ranges for each source
-  - aligned window around anchor
-  - a small timeline preview
+```bash
+python3 -m src.main \
+  --log-file data/Mac_2k.log \
+  --model llama3.1:8b \
+  --chunk-size 250 \
+  --max-lines 2000 \
+  --temperature 0.2 \
+  --output-file reports/report.json
+```
 
----
+Drop Low-Signal Logs:
 
-## Notes (important + honest)
-- mac_system_logs.csv has Month/Date/Time but **no year**.
-  We make the year explicit with `--mac-year` so the run is reproducible.
-- For Demo 1, the thermal agent is the only analysis agent (by design).
-  The goal is to prove the pipeline + one agent works end-to-end.
-
+```bash
+python3 -m src.main \
+  --log-file data/Mac_2k.log \
+  --drop-low-signal
+```

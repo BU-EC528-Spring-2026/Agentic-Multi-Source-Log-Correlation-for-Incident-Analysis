@@ -1,2 +1,2 @@
-python-dateutil>=2.9.0
-rich>=13.7.1
+ollama>=0.3.0
+pytest>=8.0.0
