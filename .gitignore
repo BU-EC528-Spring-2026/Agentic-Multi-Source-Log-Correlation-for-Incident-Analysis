@@ -1,5 +1,4 @@
 out/
-reports/
 tests/
 .venv/
 __pycache__/
