@@ -61,12 +61,12 @@ If similarity exceeds the threshold, the logs will still be correlated.
 ---
 
 # File Structure
-
+```bash
 correlation_agent.py # core correlation logic
 test_correlation_agent.py # unit tests for the correlation agent
 requirements.txt
 .gitignore
-
+```
 ---
 
 # Log Event Format
