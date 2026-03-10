@@ -1,36 +1,42 @@
 import json
 import time
+from abc import ABC, abstractmethod
 from typing import Optional
 
-try:
-    from ollama import Client
-    from ollama import ResponseError
-except ModuleNotFoundError:  
-    Client = None  
-
-    class ResponseError(Exception):
-        status_code = 0
-        error = "ollama package not installed"
+import requests
 
 
-class LLMClient:
+class InferenceClient(ABC):
+    @abstractmethod
+    def chat_structured(
+        self,
+        *,
+        schema: dict,
+        system_prompt: str,
+        user_prompt: str,
+        seed: Optional[int] = None,
+    ) -> dict: ...
+
+
+class OpenRouterClient(InferenceClient):
+    BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
     def __init__(
         self,
         *,
         model: str,
-        host: str,
+        api_key: str,
         temperature: float,
         timeout_seconds: int,
         max_retries: int,
     ):
-        if Client is None:
-            raise RuntimeError(
-                "Missing dependency 'ollama'. Install with: pip install -r requirements.txt"
-            )
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY is required")
         self.model = model
+        self.api_key = api_key
         self.temperature = temperature
+        self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
-        self.client = Client(host=host, timeout=timeout_seconds)
 
     def chat_structured(
         self,
@@ -40,49 +46,70 @@ class LLMClient:
         user_prompt: str,
         seed: Optional[int] = None,
     ) -> dict:
-        options = {"temperature": self.temperature}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": self.temperature,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                },
+            },
+        }
         if seed is not None:
-            options["seed"] = seed
+            payload["seed"] = seed
 
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             try:
-                response = self.client.chat(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    stream=False,
-                    format=schema,
-                    options=options,
+                resp = requests.post(
+                    self.BASE_URL,
+                    headers=headers,
+                    data=json.dumps(payload),
+                    timeout=self.timeout_seconds,
                 )
-                content = self.extract_message_content(response)
+                resp.raise_for_status()
+                body = resp.json()
+                content = body["choices"][0]["message"]["content"]
                 return json.loads(content)
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else "?"
+                detail = exc.response.text[:300] if exc.response is not None else str(exc)
+                last_error = RuntimeError(f"OpenRouter API error ({status}): {detail}")
             except json.JSONDecodeError as exc:
                 last_error = RuntimeError(f"Model returned invalid JSON: {exc}")
-            except ResponseError as exc:
-                last_error = RuntimeError(f"Ollama API error ({exc.status_code}): {exc.error}")
-            except Exception as exc: 
-                last_error = RuntimeError(
-                    f"Could not complete LLM request. "
-                    f"Check Ollama server/model. Details: {exc}"
-                )
+            except requests.ConnectionError as exc:
+                last_error = RuntimeError(f"Could not reach OpenRouter: {exc}")
+            except Exception as exc:
+                last_error = RuntimeError(f"OpenRouter request failed: {exc}")
 
             if attempt < self.max_retries:
                 time.sleep(0.4 * (attempt + 1))
 
         raise RuntimeError(f"LLM request failed after {self.max_retries + 1} attempts: {last_error}")
 
-    def extract_message_content(self, response: object) -> str:
-        if isinstance(response, dict):
-            message = response.get("message", {})
-            if isinstance(message, dict):
-                return str(message.get("content", ""))
-            return ""
 
-        message = getattr(response, "message", None)
-        if message is None:
-            return ""
-        content = getattr(message, "content", "")
-        return str(content)
+def create_client(
+    *,
+    model: str,
+    api_key: str,
+    temperature: float,
+    timeout_seconds: int,
+    max_retries: int,
+) -> InferenceClient:
+    return OpenRouterClient(
+        model=model,
+        api_key=api_key,
+        temperature=temperature,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+    )
