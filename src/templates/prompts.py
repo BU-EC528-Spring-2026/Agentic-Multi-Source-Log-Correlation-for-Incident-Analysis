@@ -18,7 +18,7 @@ Return strictly valid JSON that matches the provided schema.
 Prefer concrete, line-based evidence over generic statements."""
 
 
-LOG_CATEGORIZATION_PROMPT = """Analyze this chunk of macOS logs.
+LOG_CATEGORIZATION_PROMPT = """Analyze this chunk of system logs.
 
 Chunk metadata:
 - chunk_id: {chunk_id}

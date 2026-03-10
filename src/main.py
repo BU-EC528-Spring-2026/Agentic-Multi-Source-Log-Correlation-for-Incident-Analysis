@@ -5,15 +5,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agents.log_analyzer import ReasoningAgent
-from src.core.client import LLMClient
+from src.core.client import create_client
 from src.core.config import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_RETRIES,
-    DEFAULT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_SECONDS,
-    OLLAMA_HOST,
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
 )
 from src.core.log_parser import ParsedLog, chunk_logs, parse_logs
 
@@ -102,7 +102,7 @@ def run(
     log_file: str,
     output_file: str,
     model: str,
-    host: str,
+    api_key: str,
     chunk_size: int,
     max_lines: int,
     temperature: float,
@@ -111,6 +111,12 @@ def run(
     seed: int | None,
     drop_low_signal: bool,
 ) -> dict:
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. "
+            "Export it in your shell or add it to .env"
+        )
+
     raw_lines = load_log_file(log_file, max_lines=max_lines)
     parsed_lines, skipped_lines = parse_logs(raw_lines)
     parsed_before_filter_count = len(parsed_lines)
@@ -122,9 +128,9 @@ def run(
         raise RuntimeError("No parsable log lines found in input file")
 
     chunks = chunk_logs(parsed_lines, chunk_size=chunk_size)
-    llm = LLMClient(
+    llm = create_client(
         model=model,
-        host=host,
+        api_key=api_key,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
@@ -154,8 +160,8 @@ def run(
     report = {
         "meta": {
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "provider": "openrouter",
             "model": model,
-            "ollama_host": host,
             "log_file": str(Path(log_file).resolve()),
             "max_lines": max_lines,
             "chunk_size": chunk_size,
@@ -190,12 +196,11 @@ def run(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Baseline LLM log categorization + correlation on raw .log files",
+        description="LLM log categorization + correlation via OpenRouter",
     )
-    parser.add_argument("--log-file", default="data/Mac_2k.log")
+    parser.add_argument("--log-file", default="loghub/Mac/Mac_2k.log")
     parser.add_argument("--output-file", default="reports/report.json")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--ollama-host", default=OLLAMA_HOST)
+    parser.add_argument("--model", default=OPENROUTER_MODEL)
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
@@ -213,7 +218,7 @@ if __name__ == "__main__":
             log_file=args.log_file,
             output_file=args.output_file,
             model=args.model,
-            host=args.ollama_host,
+            api_key=OPENROUTER_API_KEY,
             chunk_size=args.chunk_size,
             max_lines=args.max_lines,
             temperature=args.temperature,

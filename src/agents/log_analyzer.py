@@ -1,6 +1,6 @@
 import json
 
-from src.core.client import LLMClient
+from src.core.client import InferenceClient
 from src.core.log_parser import ParsedLog
 from src.templates.prompts import (
     CATEGORY_TAXONOMY,
@@ -134,7 +134,7 @@ CORRELATION_SCHEMA = {
 
 
 class ReasoningAgent:
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: InferenceClient):
         self.llm = llm_client
 
     def analyze_chunk(
@@ -329,12 +329,15 @@ class ReasoningAgent:
     def format_entries(self, entries: list[ParsedLog]) -> str:
         lines: list[str] = []
         for item in entries:
-            pid = item.pid if item.pid is not None else "NA"
-            context = f" ({item.context})" if item.context else ""
-            lines.append(
-                f"[line={item.line_no}] [{item.timestamp}] [{item.host}] "
-                f"{item.process}[{pid}]{context}: {item.message}"
-            )
+            if item.host:
+                pid = item.pid if item.pid is not None else "NA"
+                context = f" ({item.context})" if item.context else ""
+                lines.append(
+                    f"[line={item.line_no}] [{item.timestamp}] [{item.host}] "
+                    f"{item.process}[{pid}]{context}: {item.message}"
+                )
+            else:
+                lines.append(f"[line={item.line_no}] {item.message}")
         return "\n".join(lines)
 
     def normalize_category(self, value: object) -> str:
