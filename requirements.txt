@@ -1,0 +1,8 @@
+# Core dependencies
+python-dateutil>=2.8.2
+
+# Testing
+pytest>=7.4.0
+
+# Optional: helpful for debugging/logging
+rich>=13.7.0
