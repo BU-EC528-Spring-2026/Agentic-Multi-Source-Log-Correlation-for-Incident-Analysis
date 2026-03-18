@@ -156,6 +156,7 @@ def run(
 
     totals_dict = dict(sorted(totals.items()))
     overview = build_overview(correlation=correlation, totals=totals_dict)
+    inference = llm.get_inference_telemetry()
 
     report = {
         "meta": {
@@ -180,6 +181,7 @@ def run(
             "skipped_examples": skipped_lines[:20],
         },
         "overview": overview,
+        "inference": inference,
         "chunk_overview": build_chunk_overview(chunk_analyses),
         "details": {
             "category_totals_from_chunks": totals_dict,

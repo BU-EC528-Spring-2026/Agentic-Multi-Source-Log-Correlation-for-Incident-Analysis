@@ -161,6 +161,7 @@ class ReasoningAgent:
             system_prompt=LOG_CATEGORIZATION_SYSTEM,
             user_prompt=prompt,
             seed=seed,
+            telemetry={"stage": "chunk_analysis", "chunk_id": chunk_id},
         )
         return self.normalize_chunk_analysis(
             payload=analysis,
@@ -200,6 +201,7 @@ class ReasoningAgent:
             system_prompt=CORRELATION_SYSTEM,
             user_prompt=prompt,
             seed=seed,
+            telemetry={"stage": "correlation"},
         )
         return self.normalize_correlation(payload)
 

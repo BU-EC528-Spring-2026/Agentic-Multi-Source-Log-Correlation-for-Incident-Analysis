@@ -16,7 +16,11 @@ class InferenceClient(ABC):
         system_prompt: str,
         user_prompt: str,
         seed: Optional[int] = None,
+        telemetry: Optional[dict] = None,
     ) -> dict: ...
+
+    @abstractmethod
+    def get_inference_telemetry(self) -> dict: ...
 
 
 class OpenRouterClient(InferenceClient):
@@ -47,6 +51,7 @@ class OpenRouterClient(InferenceClient):
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or greater")
         self.max_retries = max_retries
+        self.inference_calls: list[dict] = []
 
     def chat_structured(
         self,
@@ -55,6 +60,7 @@ class OpenRouterClient(InferenceClient):
         system_prompt: str,
         user_prompt: str,
         seed: Optional[int] = None,
+        telemetry: Optional[dict] = None,
     ) -> dict:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -82,6 +88,7 @@ class OpenRouterClient(InferenceClient):
         last_error: Optional[RuntimeError] = None
         for attempt_number in range(1, total_attempts + 1):
             try:
+                started_at = time.perf_counter()
                 response = requests.post(
                     self.BASE_URL,
                     headers=headers,
@@ -89,7 +96,14 @@ class OpenRouterClient(InferenceClient):
                     timeout=self.timeout_seconds,
                 )
                 response.raise_for_status()
-                return self.parse_model_response(response)
+                parsed, body = self.parse_model_response(response)
+                self.record_inference_call(
+                    body=body,
+                    latency_ms=(time.perf_counter() - started_at) * 1000,
+                    attempt_count=attempt_number,
+                    telemetry=telemetry,
+                )
+                return parsed
             except request_exceptions.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
                 detail = self.preview_text(
@@ -105,8 +119,6 @@ class OpenRouterClient(InferenceClient):
                 )
             except request_exceptions.ConnectionError as exc:
                 last_error = RuntimeError(f"Could not reach OpenRouter: {exc}")
-            except RuntimeError:
-                raise
             except request_exceptions.RequestException as exc:
                 last_error = RuntimeError(f"OpenRouter request failed: {exc}")
 
@@ -115,7 +127,7 @@ class OpenRouterClient(InferenceClient):
 
         raise RuntimeError(f"LLM request failed after {total_attempts} attempts: {last_error}")
 
-    def parse_model_response(self, response: requests.Response) -> dict:
+    def parse_model_response(self, response: requests.Response) -> tuple[dict, dict]:
         try:
             body = response.json()
         except ValueError as exc:
@@ -157,7 +169,65 @@ class OpenRouterClient(InferenceClient):
             raise RuntimeError(
                 f"Model returned {type(parsed).__name__}, expected a JSON object"
             )
-        return parsed
+        return parsed, body
+
+    def record_inference_call(
+        self,
+        *,
+        body: dict,
+        latency_ms: float,
+        attempt_count: int,
+        telemetry: Optional[dict],
+    ) -> None:
+        entry = {
+            "latency_ms": round(latency_ms, 1),
+            "attempt_count": attempt_count,
+        }
+        if telemetry:
+            entry.update({key: value for key, value in telemetry.items() if value is not None})
+
+        for body_key, entry_key in (
+            ("id", "request_id"),
+            ("provider", "provider"),
+            ("model", "model"),
+        ):
+            value = body.get(body_key)
+            if value is not None and value != "":
+                entry[entry_key] = value
+
+        usage = body.get("usage")
+        if isinstance(usage, dict):
+            token_usage = {
+                key: value
+                for key, value in sorted(usage.items())
+                if isinstance(value, (int, float))
+            }
+            if token_usage:
+                entry["token_usage"] = token_usage
+
+        self.inference_calls.append(entry)
+
+    def get_inference_telemetry(self) -> dict:
+        total_latency_ms = 0.0
+        token_usage_totals: dict[str, int | float] = {}
+        calls = []
+
+        for item in self.inference_calls:
+            calls.append(dict(item))
+            total_latency_ms += float(item.get("latency_ms", 0.0))
+            for key, value in item.get("token_usage", {}).items():
+                token_usage_totals[key] = token_usage_totals.get(key, 0) + value
+
+        telemetry = {
+            "call_count": len(calls),
+            "total_latency_ms": round(total_latency_ms, 1),
+            "calls": calls,
+        }
+        if calls:
+            telemetry["avg_latency_ms"] = round(total_latency_ms / len(calls), 1)
+        if token_usage_totals:
+            telemetry["token_usage"] = dict(sorted(token_usage_totals.items()))
+        return telemetry
 
     def retry_delay_seconds(self, attempt_number: int) -> float:
         return 0.4 * attempt_number
