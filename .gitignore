@@ -45,3 +45,5 @@ temp/
 
 # OS generated
 Thumbs.db
+# Backup files
+*.bak

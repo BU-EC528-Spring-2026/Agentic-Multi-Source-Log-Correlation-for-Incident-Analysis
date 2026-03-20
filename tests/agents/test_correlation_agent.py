@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from correlation_agent import LogEvent, CorrelationAgent
+from src.agents.correlation.correlation_agent import LogEvent, CorrelationAgent
 
 
 def _dt(seconds: int) -> datetime:
