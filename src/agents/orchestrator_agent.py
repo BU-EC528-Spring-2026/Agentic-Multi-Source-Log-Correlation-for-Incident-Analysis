@@ -7,7 +7,23 @@ from src.agents.auth_agent import AuthAgent
 from src.agents.openstack_vm_agent import OpenStackVMAgent
 
 class OrchestratorAgent:
+    """
+    OrchestratorAgent coordinates multiple sub-agents to analyze logs
+    and produce a combined set of incidents. Currently runs:
+      - AuthAgent: detects authentication-related incidents
+      - OpenStackVMAgent: detects OpenStack VM-related incidents
+    """
+    
     def __init__(self, log_file: str, output_file: str = "normalized/orchestrator_output.json"):
+
+        """
+        Initialize the orchestrator agent.
+
+        Args:
+            log_file: path to the unified log file to analyze.
+            output_file: path to write the combined incident output JSON.
+        """
+        
         self.log_file = log_file
         self.output_file = Path(output_file)
         self.auth_agent = AuthAgent(log_file)
@@ -16,6 +32,7 @@ class OrchestratorAgent:
         self.incidents = []
 
     def run(self):
+        """Run all sub-agents, collect incidents, and write output JSON."""
         logging.basicConfig(level=logging.INFO)
         self.logger.info("Orchestrator agent is running")
 
