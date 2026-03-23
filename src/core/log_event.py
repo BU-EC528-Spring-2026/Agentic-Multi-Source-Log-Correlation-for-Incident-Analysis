@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -55,44 +57,142 @@ def build_events(entries: list[ParsedLog], source: str) -> list[LogEvent]:
     return [build_event(entry, source=source) for entry in entries]
 
 
+def load_events_from_ingestion_jsonl(
+    path: str | Path,
+) -> tuple[list[LogEvent], list[dict[str, Any]]]:
+    jsonl_path = Path(path)
+    if not jsonl_path.exists():
+        raise FileNotFoundError(f"ingestion JSONL not found: {jsonl_path}")
+
+    events: list[LogEvent] = []
+    rejected: list[dict[str, Any]] = []
+
+    with jsonl_path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_number, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError as exc:
+                rejected.append(
+                    {"line_number": line_number, "reason": f"invalid JSON: {exc.msg}"}
+                )
+                continue
+            if not isinstance(payload, dict):
+                rejected.append(
+                    {
+                        "line_number": line_number,
+                        "reason": "ingestion record must be a JSON object",
+                    }
+                )
+                continue
+            try:
+                events.append(build_event_from_ingestion_record(payload))
+            except ValueError as exc:
+                rejected.append({"line_number": line_number, "reason": str(exc)})
+
+    return events, rejected
+
+
 def build_event_from_ingestion_record(item: dict[str, Any]) -> LogEvent:
-    event_id, event_id_key = pick_value(item, ["event_id", "id"])
-    timestamp, timestamp_key = pick_value(item, ["timestamp", "ts", "@timestamp"])
-    source, source_key = pick_value(item, ["source", "dataset", "source_file"])
-    category, category_key = pick_value(
+    used: set[str] = set()
+
+    source, sk = pick_value(item, ["source", "dataset", "source_file"])
+    used.add(sk)
+
+    event_id, id_keys = ingestion_event_id(item, source=source)
+    used.update(id_keys)
+
+    timestamp, ts_keys = ingestion_timestamp(item)
+    used.update(ts_keys)
+
+    category, ck = pick_value(
         item,
-        ["category", "template", "label"],
+        ["category", "event_template", "template", "label"],
         default="other",
     )
-    severity, severity_key = pick_value(
-        item,
-        ["severity", "level"],
-        default="unknown",
-    )
-    message, message_key = pick_value(item, ["message", "text", "raw"])
+    if ck:
+        used.add(ck)
+
+    severity, sek = pick_value(item, ["severity", "level"], default="unknown")
+    if sek:
+        used.add(sek)
+
+    message, mk = pick_value(item, ["message", "text", "raw"])
+    used.add(mk)
+
+    process, pk = pick_value(item, ["component", "process"], default="")
+    if pk:
+        used.add(pk)
+
     entities = build_entities(item.get("entities", []))
-    used_keys = {
-        event_id_key,
-        timestamp_key,
-        source_key,
-        category_key,
-        severity_key,
-        message_key,
-        "process",
-        "entities",
-    }
-    raw_metadata = {key: value for key, value in item.items() if key not in used_keys}
+    if "entities" in item:
+        used.add("entities")
+
+    raw_metadata = {k: v for k, v in item.items() if k not in used}
+
     return LogEvent(
         event_id=event_id,
         timestamp=timestamp,
         source=source,
-        process=str(item.get("process", "")),
+        process=process,
         category=category,
         severity=normalize_severity(severity),
         message=message,
         entities=entities,
         raw_metadata=raw_metadata,
     )
+
+
+def ingestion_event_id(item: dict[str, Any], *, source: str) -> tuple[str, set[str]]:
+    for key in ("event_id", "id"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip(), {key}
+    line_id = item.get("line_id")
+    if line_id is not None and str(line_id).strip():
+        return f"{source}:{str(line_id).strip()}", {"line_id"}
+    raise ValueError("missing required field from ['event_id', 'line_id']")
+
+
+def ingestion_timestamp(item: dict[str, Any]) -> tuple[str, set[str]]:
+    iso = item.get("timestamp_iso")
+    if iso is not None and str(iso).strip():
+        return normalize_timestamp(str(iso)), {"timestamp_iso"}
+
+    epoch = item.get("timestamp_epoch")
+    if epoch is not None and str(epoch).strip():
+        try:
+            sec = float(str(epoch).strip())
+        except ValueError as exc:
+            raise ValueError(f"invalid timestamp_epoch: {epoch!r}") from exc
+        if abs(sec) > 1e12:
+            sec /= 1000.0
+        dt = datetime.fromtimestamp(sec, tz=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z"), {"timestamp_epoch"}
+
+    for key in ("timestamp", "ts", "@timestamp"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            return normalize_timestamp(str(value)), {key}
+
+    raise ValueError("missing required field from timestamp")
+
+
+def normalize_timestamp(text: str) -> str:
+    candidate = text.strip()
+    if candidate.endswith("Z"):
+        candidate = candidate[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise ValueError(f"invalid timestamp: {text!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.isoformat().replace("+00:00", "Z")
 
 
 def build_event(entry: ParsedLog, source: str) -> LogEvent:
