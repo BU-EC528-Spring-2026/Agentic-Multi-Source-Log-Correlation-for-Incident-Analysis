@@ -1,6 +1,7 @@
 import json
 
 from src.core.client import InferenceClient
+from src.core.llm_input import format_log_events_for_llm
 from src.core.log_event import LogEvent
 from src.templates.prompts import (
     CATEGORY_TAXONOMY,
@@ -153,7 +154,7 @@ class ReasoningAgent:
             chunk_id=chunk_id,
             line_start=line_start,
             line_end=line_end,
-            log_block=self.format_entries(entries),
+            log_block=format_log_events_for_llm(entries),
             category_taxonomy=CATEGORY_TAXONOMY,
         )
         analysis = self.llm.chat_structured(
@@ -327,23 +328,6 @@ class ReasoningAgent:
             "timeline_highlights": self.clean_text_list(payload.get("timeline_highlights", [])),
             "next_queries": self.clean_text_list(payload.get("next_queries", [])),
         }
-
-    def format_entries(self, entries: list[LogEvent]) -> str:
-        lines: list[str] = []
-        for item in entries:
-            line_no = item.raw_metadata.get("line_no", "NA")
-            host = item.raw_metadata.get("host", "")
-            pid = item.raw_metadata.get("pid", "NA")
-            context_value = item.raw_metadata.get("context")
-            if host:
-                context = f" ({context_value})" if context_value else ""
-                lines.append(
-                    f"[line={line_no}] [{item.timestamp}] [{host}] "
-                    f"{item.process}[{pid}]{context}: {item.message}"
-                )
-            else:
-                lines.append(f"[line={line_no}] {item.message}")
-        return "\n".join(lines)
 
     def normalize_category(self, value: object) -> str:
         normalized = str(value).strip().lower().replace(" ", "_").replace("-", "_")
