@@ -6,3 +6,52 @@ __pycache__/
 .DS_Store
 .env
 tests/
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# MacOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Test output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Data files (if logs/datasets are large)
+data/
+datasets/
+
+# Temporary files
+tmp/
+temp/
+
+# OS generated
+Thumbs.db
+# Backup files
+*.bak
