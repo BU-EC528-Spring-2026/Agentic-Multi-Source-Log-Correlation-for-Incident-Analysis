@@ -1,153 +1,56 @@
 # Agentic Multi-Source Log Correlation for Incident Analysis
 
-This repository contains our EC528 project on building an agentic, retrieval-augmented incident reasoning system for multi-source log analysis. The goal is to move beyond simple log correlation and produce ranked, evidence-backed root cause hypotheses from heterogeneous system logs.
+This EC528 project explores how multi-agent LLM systems can help with incident analysis across heterogeneous logs. Instead of treating logs as isolated streams, the project aims to connect signals from sources such as authentication, networking, host or kernel activity, and application services to generate evidence-backed root cause hypotheses.
 
-## Project Overview
+## Why This Project
 
-Modern incidents rarely come from a single component. Failures often span networking, authentication, host processes, kernel activity, infrastructure signals, and application services. In many cases, downstream errors are symptoms of one upstream issue. This project focuses on designing a system that can retrieve relevant evidence across log sources, analyze each source with specialized agents, correlate those findings, and iteratively refine likely root-cause explanations.
+Real incidents often produce symptoms in many places at once, while the actual cause starts upstream in only one part of the system. Traditional log analysis can surface related events, but it does not always explain which events are causal and which are only correlated. Our project focuses on building an agentic workflow that retrieves relevant evidence, analyzes each source in context, and iteratively refines likely explanations.
 
-The emphasis is on causal hypothesis generation and refinement, not automated remediation or guaranteed root-cause certainty.
+## Core Idea
 
-## Project Goals
+At a high level, the system is designed around four steps:
 
-- Ingest and normalize heterogeneous log sources.
-- Implement hybrid retrieval using keyword or regex filtering plus semantic search.
-- Use source-specific agents to extract structured anomalies and suspicious events.
-- Correlate cross-source signals into candidate causal chains.
-- Generate ranked root-cause hypotheses with confidence scores.
-- Support an agentic retrieve -> reason -> evaluate loop for iterative refinement.
-- Ensure explainability through explicit evidence citation.
+1. Ingest and normalize logs from multiple sources into a structured format.
+2. Retrieve the most relevant evidence using a hybrid of keyword filtering and semantic search.
+3. Let source-specific agents analyze retrieved evidence and produce structured findings.
+4. Use a correlation agent to assemble those findings into ranked root cause hypotheses with supporting evidence and confidence estimates.
 
-## Functional Requirements
+An optional critic or validator agent can challenge weak hypotheses and request additional retrieval before the final report is produced.
 
-### 1. Log Ingestion
+## What Matters Most
 
-The system should support at least 3-4 distinct log sources, such as:
+The main ideas pulled from the project spec are:
 
-- Network logs
-- Authentication logs
-- Kernel or host logs
-- Application or database logs
+- Multi-source reasoning is the central problem, not single-log summarization.
+- Retrieval quality matters, so the project uses both deterministic filtering and semantic similarity.
+- Agents should produce structured outputs, not just free-form explanations.
+- Final conclusions should be evidence-backed, ranked, and traceable to specific log lines.
+- The system should support iteration: retrieve more evidence, update the hypothesis, and stop when confidence stabilizes.
 
-Supported data may be synthetic or sampled from real-world datasets such as OpenStack or LogHub. The ingestion layer is expected to:
+## Expected Outputs
 
-- Parse raw logs with deterministic parsing methods such as regex.
-- Normalize timestamps and structure records into JSON.
-- Assign unique line identifiers for traceability.
+The end goal is a structured incident report that includes:
 
-### 2. Retrieval Layer
-
-The retrieval layer should combine multiple strategies:
-
-- Keyword or regex retrieval
-- Time-window filtering
-- Process-based filtering
-- Embedding-based semantic retrieval
-- Hybrid retrieval that narrows by keyword or time and then re-ranks semantically
-
-Returned evidence should remain structured and traceable, including:
-
-- Log identifier
-- Timestamp
-- Source category
-- Raw message
-
-### 3. Source-Specific Analysis Agents
-
-Each source agent should operate only on retrieved evidence relevant to its source and output structured results instead of free-form text alone. Expected extracted fields include:
-
-- Event category
-- Severity
-- Timestamp
-- Evidence identifiers
-
-Example source agents include host or kernel, authentication, network, database, and infrastructure agents.
-
-### 4. Correlation and Root Cause Agent
-
-The correlation layer should consume the structured outputs from source agents and:
-
-- Identify temporal and categorical relationships
-- Construct candidate causal chains
-- Propose ranked root-cause hypotheses
-- Assign confidence scores
-- Explicitly cite supporting evidence
-
-The system should distinguish between correlated events and hypothesized upstream causes.
-
-### 5. Critic or Validation Agent
-
-In the advanced phase, a critic agent should:
-
-- Challenge top-ranked hypotheses
-- Surface alternative explanations
-- Reduce overconfidence
-- Suggest additional retrieval queries
-
-### 6. Agentic Iterative Loop
-
-The overall workflow should support iterative reasoning:
-
-1. Generate a hypothesis.
-2. Evaluate confidence.
-3. Identify missing evidence.
-4. Retrieve targeted logs.
-5. Re-run correlation.
-6. Stop when confidence stabilizes or an iteration limit is reached.
-
-### 7. Output Requirements
-
-The system should produce a structured incident report containing:
-
-- Global summary
-- Ranked hypotheses
+- A concise incident summary
+- Ranked root cause hypotheses
 - Confidence scores
-- Explicit evidence references
+- Evidence references
 - Timeline highlights
-- Recommended follow-up queries
+- Suggested follow-up queries
 
-Expected output format: JSON plus a human-readable summary.
+## Planned Stack
 
-## Proposed Technology Stack
+- Python for the main implementation
+- Ollama locally in the initial phase, with OpenRouter as a planned upgrade path
+- Hybrid retrieval using regex or keyword search plus embeddings
+- A lightweight local storage layer such as JSON files or SQLite
+- Docker for reproducible deployment
 
-- Language: Python
-- LLM access: local inference via Ollama in the initial phase, with a planned switch to OpenRouter
-- Retrieval: keyword or regex filtering plus embedding-based semantic search
-- Vector backend: FAISS, SPTAG, or an equivalent ANN solution
-- Storage: local files or a lightweight database such as SQLite
-- Deployment: Docker container
-- Version control: Git and GitHub
+## Repository Status
 
-## High-Level Architecture
-
-```text
-Log Ingestion
-    ->
-Parsing and Structuring
-    ->
-Hybrid Retrieval (Keyword + Semantic)
-    ->
-Source-Specific Agents
-    ->
-Correlation / Root Cause Analysis Agent
-    ->
-Critic / Validation Agent
-    ->
-Final Incident Report
-```
-
-## Risks and Mitigations
-
-- LLM hallucination: enforce strict schemas and require evidence citation.
-- Correlation mistaken for causation: build and rank explicit causal chains.
-- Retrieval noise: combine keyword filtering with semantic retrieval.
-- Overconfidence in hypotheses: use critic-agent review and confidence thresholds.
-
-## Current Repository Status
-
-This repository currently contains the project README and supporting local artifacts only. The implementation work described above is the project target defined by the EC528 specification and should be treated as planned system scope unless corresponding code and documentation are added here.
+This repository is currently in an early stage and does not yet contain the full implementation described above. The README reflects the distilled project direction and intended system design from the EC528 spec.
 
 ## Demo Presentations
 
 - [Demo 1](https://docs.google.com/presentation/d/1GPAEH4Cf7paiDZ0z6zxIpxNn0OVbhj9mYld-0ZLKsgY/edit?slide=id.p#slide=id.p)
-- [Demo 2](https://docs.google.com/presentation/d/1utnqEQaKfqSOjF4wya7j3ddD0Xs1_japXFvNtP1JG6o/edit?usp=sharing) 
+- [Demo 2](https://docs.google.com/presentation/d/1utnqEQaKfqSOjF4wya7j3ddD0Xs1_japXFvNtP1JG6o/edit?usp=sharing)
