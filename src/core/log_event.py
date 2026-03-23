@@ -17,6 +17,33 @@ class LogEvent:
     entities: list[dict[str, str]]
     raw_metadata: dict[str, Any]
 
+    @classmethod
+    def from_dict(cls, item: dict[str, Any]) -> "LogEvent":
+        return cls(
+            event_id=str(item["event_id"]),
+            timestamp=str(item["timestamp"]),
+            source=str(item["source"]),
+            process=str(item["process"]),
+            category=str(item["category"]),
+            severity=str(item["severity"]),
+            message=str(item["message"]),
+            entities=[dict(value) for value in item["entities"]],
+            raw_metadata=dict(item["raw_metadata"]),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "timestamp": self.timestamp,
+            "source": self.source,
+            "process": self.process,
+            "category": self.category,
+            "severity": self.severity,
+            "message": self.message,
+            "entities": [dict(value) for value in self.entities],
+            "raw_metadata": dict(self.raw_metadata),
+        }
+
 
 def build_source_name(log_file: str) -> str:
     path = Path(log_file)
