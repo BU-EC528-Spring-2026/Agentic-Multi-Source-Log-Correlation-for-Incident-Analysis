@@ -1,7 +1,7 @@
 import json
 
 from src.core.client import InferenceClient
-from src.core.log_parser import ParsedLog
+from src.core.log_event import LogEvent
 from src.templates.prompts import (
     CATEGORY_TAXONOMY,
     CORRELATION_PROMPT,
@@ -141,14 +141,14 @@ class ReasoningAgent:
         self,
         *,
         chunk_id: int,
-        entries: list[ParsedLog],
+        entries: list[LogEvent],
         seed: int | None = None,
     ) -> dict:
         if not entries:
             raise ValueError("entries cannot be empty")
 
-        line_start = entries[0].line_no
-        line_end = entries[-1].line_no
+        line_start = int(entries[0].raw_metadata.get("line_no", 1))
+        line_end = int(entries[-1].raw_metadata.get("line_no", line_start))
         prompt = LOG_CATEGORIZATION_PROMPT.format(
             chunk_id=chunk_id,
             line_start=line_start,
@@ -328,18 +328,21 @@ class ReasoningAgent:
             "next_queries": self.clean_text_list(payload.get("next_queries", [])),
         }
 
-    def format_entries(self, entries: list[ParsedLog]) -> str:
+    def format_entries(self, entries: list[LogEvent]) -> str:
         lines: list[str] = []
         for item in entries:
-            if item.host:
-                pid = item.pid if item.pid is not None else "NA"
-                context = f" ({item.context})" if item.context else ""
+            line_no = item.raw_metadata.get("line_no", "NA")
+            host = item.raw_metadata.get("host", "")
+            pid = item.raw_metadata.get("pid", "NA")
+            context_value = item.raw_metadata.get("context")
+            if host:
+                context = f" ({context_value})" if context_value else ""
                 lines.append(
-                    f"[line={item.line_no}] [{item.timestamp}] [{item.host}] "
+                    f"[line={line_no}] [{item.timestamp}] [{host}] "
                     f"{item.process}[{pid}]{context}: {item.message}"
                 )
             else:
-                lines.append(f"[line={item.line_no}] {item.message}")
+                lines.append(f"[line={line_no}] {item.message}")
         return "\n".join(lines)
 
     def normalize_category(self, value: object) -> str:

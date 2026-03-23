@@ -15,6 +15,7 @@ from src.core.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
 )
+from src.core.log_event import build_events, build_source_name
 from src.core.log_parser import ParsedLog, chunk_logs, parse_logs
 
 LOW_SIGNAL_MARKERS = (
@@ -127,7 +128,9 @@ def run(
     if not parsed_lines:
         raise RuntimeError("No parsable log lines found in input file")
 
-    chunks = chunk_logs(parsed_lines, chunk_size=chunk_size)
+    source = build_source_name(log_file)
+    events = build_events(parsed_lines, source=source)
+    chunks = chunk_logs(events, chunk_size=chunk_size)
     llm = create_client(
         model=model,
         api_key=api_key,
@@ -164,6 +167,7 @@ def run(
             "provider": "openrouter",
             "model": model,
             "log_file": str(Path(log_file).resolve()),
+            "source": source,
             "max_lines": max_lines,
             "chunk_size": chunk_size,
             "temperature": temperature,
