@@ -1,67 +1,89 @@
-# Log pipeline backend
+## Agentic Multi-Source Log Correlation for Incident Analysis
 
-Standalone backend for log ingestion, retrieval, and source agents. Reads structured LogHub-style CSVs from a configurable data root and produces normalized logs plus anomaly outputs.
+Overview
 
-## Components
+This project implements a multi-agent pipeline for analyzing structured log data from multiple sources. It was originally developed on a different branch, with the main log ingestion and agent components already implemented.
 
-- **Ingestion** — Loads OpenStack, OpenSSH, Linux, and Apache structured CSVs; normalizes timestamps and schema; writes `normalized/unified_logs.jsonl` and `normalized/ingestion_summary.json`.
-- **Retrieval** — Builds metadata JSONL, message embeddings, and a FAISS index over unified logs for semantic/keyword search.
-- **Auth agent** — Detects auth-related anomalies (repeated failures, invalid user, successful auth after failures, login burst) from Linux/OpenSSH logs.
-- **OpenStack VM agent** — Detects VM lifecycle anomalies (repeated restart cycle, unexpected stop, lifecycle churn) from OpenStack logs.
+The orchestrator agent is my addition, which coordinates multiple sub-agents to produce a unified set of incidents from the logs.
 
-## Data root (`LOG_DATA_ROOT`)
+Original Components
 
-Datasets are **not** stored in this repo. All dataset paths are under a single configurable root:
+AuthAgent – Detects authentication-related incidents from Linux and OpenSSH logs.
+OpenStackVMAgent – Detects OpenStack VM-related incidents.
+Ingestion scripts – Normalize logs from multiple sources into a unified JSONL format.
 
-- **Environment variable:** `LOG_DATA_ROOT`
-- **Default:** `data` (relative to project root)
+My Edits
 
-Expected layout under that root:
+Added OrchestratorAgent in src/agents/orchestrator_agent.py.
+The orchestrator:
+Loads the unified log file.
+Runs all sub-agents (AuthAgent, OpenStackVMAgent, etc.).
+Collects incidents from each sub-agent.
+Writes combined results to normalized/orchestrator_output.json.
+Added logging for orchestrator-level events.
+Adjusted sub-agent constructors to accept a log_file argument for seamless integration.
 
-- `LOG_DATA_ROOT/OpenStack/OpenStack_2k.log_structured.csv`
-- `LOG_DATA_ROOT/OpenSSH/OpenSSH_2k.log_structured.csv`
-- `LOG_DATA_ROOT/Linux/Linux_2k.log_structured.csv`
-- `LOG_DATA_ROOT/Apache/Apache_2k.log_structured.csv`
+Directory Structure
 
-Use a path relative to the project (e.g. `data`) or an absolute path (e.g. `/opt/loghub`) so the same code works whether data lives inside the repo or in an external LogHub clone.
-
-See `data/README.md` for required datasets and file names.
-
-## Running the pipeline
-
-From the project root:
-
-```bash
-# Optional: use external data (e.g. LogHub clone)
-export LOG_DATA_ROOT=/path/to/loghub
-
-# 1. Ingest
-python -m src.ingestion.ingest_logs
-
-# 2. Build retrieval index (optional)
-python -m src.retrieval.build_retrieval_index
-
-# 3. Run source agents
-python -m src.agents.auth_agent
-python -m src.agents.openstack_vm_agent
-```
-
-Outputs go under `normalized/`. Example anomaly records are in `reports/`.
-
-## Tests
-
-```bash
-pytest tests/ -v
-```
-
-## Project layout
-
-```
 src/
-  ingestion/   ingest_logs.py
-  retrieval/   build_retrieval_index.py
-  agents/      auth_agent.py, openstack_vm_agent.py
-tests/
-reports/       sample agent outputs
-data/README.md
-```
+agents/
+auth_agent.py
+openstack_vm_agent.py
+orchestrator_agent.py # My addition
+ingestion/
+ingest_logs.py
+retrieval/
+build_retrieval_index.py
+
+data/ – Folder containing structured log datasets (OpenStack, Linux, OpenSSH, Apache).
+normalized/ – Output folder where unified logs and agent outputs are stored.
+
+Setup Instructions
+
+Clone the repository (replace YOUR_USERNAME with your GitHub username):
+
+git clone git@github.com
+:BU-EC528-Spring-2026/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis.git
+cd Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis
+
+Set up a virtual environment:
+
+python3 -m venv venv
+source venv/bin/activate (macOS/Linux)
+venv\Scripts\activate (Windows)
+
+Install dependencies:
+
+pip install -r requirements.txt
+
+Download or copy the log data (if not already present):
+Logs are hosted in a separate repository (loghub) and need to be available locally:
+
+git clone https://github.com/logpai/loghub.git
+ ~/loghub
+
+Ensure the following files exist:
+
+~/loghub/OpenStack/OpenStack_2k.log_structured.csv
+~/loghub/OpenSSH/OpenSSH_2k.log_structured.csv
+~/loghub/Linux/Linux_2k.log_structured.csv
+~/loghub/Apache/Apache_2k.log_structured.csv
+
+Or copy them into data/<source>/ inside this repo.
+Run log ingestion:
+
+PYTHONPATH=. python src/ingestion/ingest_logs.py
+
+Output: normalized/unified_logs.jsonl
+Run the orchestrator agent:
+
+PYTHONPATH=. python -c "from src.agents.orchestrator_agent import OrchestratorAgent; OrchestratorAgent('normalized/unified_logs.jsonl').run()"
+
+Output: normalized/orchestrator_output.json
+This file contains combined incidents from all sub-agents.
+
+Notes
+
+The orchestrator agent does not modify the original sub-agents. It simply runs them sequentially and collects their outputs.
+Logging is configured to provide status messages about the number of incidents detected by each sub-agent.
+For development, make sure PYTHONPATH=. is set to allow imports from src.
