@@ -1,5 +1,4 @@
 import json
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -102,19 +101,19 @@ def build_events_from_ingestion_records(
     events: list[LogEvent] = []
     rejected: list[dict[str, Any]] = []
 
-    for index, payload in enumerate(records, start=1):
-        if not isinstance(payload, dict):
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
             rejected.append(
                 {
-                    "record_index": index,
+                    "line_number": index,
                     "reason": "ingestion record must be a JSON object",
                 }
             )
             continue
         try:
-            events.append(build_event_from_ingestion_record(payload))
+            events.append(build_event_from_ingestion_record(record))
         except ValueError as exc:
-            rejected.append({"record_index": index, "reason": str(exc)})
+            rejected.append({"line_number": index, "reason": str(exc)})
 
     return events, rejected
 
@@ -154,16 +153,7 @@ def build_event_from_ingestion_record(item: dict[str, Any]) -> LogEvent:
     if "entities" in item:
         used.add("entities")
 
-    line_id = item.get("line_id")
-    line_no = coerce_line_number(line_id)
-    if line_no is not None:
-        used.add("line_id")
-
     raw_metadata = {k: v for k, v in item.items() if k not in used}
-    if line_id is not None:
-        raw_metadata["line_id"] = line_id
-    if line_no is not None:
-        raw_metadata["line_no"] = line_no
 
     return LogEvent(
         event_id=event_id,
@@ -289,23 +279,6 @@ def build_entities(values: Any) -> list[dict[str, str]]:
         if name and value:
             entities.append({"name": name, "value": value})
     return entities
-
-
-def coerce_line_number(value: Any) -> int | None:
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    if text.isdigit():
-        return int(text)
-
-    matches = re.findall(r"\d+", text)
-    if not matches:
-        return None
-    return int(matches[-1])
 
 
 def normalize_severity(value: str) -> str:

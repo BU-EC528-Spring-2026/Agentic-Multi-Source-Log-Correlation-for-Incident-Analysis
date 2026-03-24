@@ -8,12 +8,17 @@ from src.agents.openstack_vm_agent import run_agent as run_openstack_vm_agent
 from src.common import load_logs
 
 
+def run_source_agents(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    auth_incidents = run_auth_agent(logs)
+    openstack_incidents = run_openstack_vm_agent(logs)
+    return auth_incidents + openstack_incidents
+
+
 class OrchestratorAgent:
     """
     Coordinate the rule-based source agents over normalized logs.
 
-    This wrapper keeps the older orchestrator entrypoint usable while delegating
-    to the current function-based agent implementations.
+    This wrapper uses the same shared source-agent coordination path as src.main.
     """
 
     def __init__(
@@ -34,10 +39,7 @@ class OrchestratorAgent:
             raise FileNotFoundError(f"normalized log file not found: {self.log_file}")
 
         logs = load_logs(self.log_file)
-        auth_incidents = run_auth_agent(logs)
-        openstack_incidents = run_openstack_vm_agent(logs)
-
-        self.incidents = auth_incidents + openstack_incidents
+        self.incidents = run_source_agents(logs)
         self.logger.info(
             "Collected %d incidents across %d source agents",
             len(self.incidents),

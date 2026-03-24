@@ -27,16 +27,34 @@ OUTPUT_DIR = REPO_ROOT / "normalized"
 OUTPUT_JSONL = OUTPUT_DIR / "unified_logs.jsonl"
 OUTPUT_SUMMARY = OUTPUT_DIR / "ingestion_summary.json"
 
-# External data root: LOG_DATA_ROOT env (default "data"), relative to repo or absolute
-_LOG_DATA_ROOT = os.environ.get("LOG_DATA_ROOT", "data")
-DATA_ROOT = Path(_LOG_DATA_ROOT) if Path(_LOG_DATA_ROOT).is_absolute() else REPO_ROOT / _LOG_DATA_ROOT
+def resolve_data_root() -> Path:
+    configured_root = os.environ.get("LOG_DATA_ROOT", "").strip()
+    if configured_root:
+        configured_path = Path(configured_root)
+        if configured_path.is_absolute():
+            return configured_path
+        return REPO_ROOT / configured_path
 
-DATASET_PATHS: dict[str, Path] = {
-    "openstack": DATA_ROOT / "OpenStack" / "OpenStack_2k.log_structured.csv",
-    "openssh": DATA_ROOT / "OpenSSH" / "OpenSSH_2k.log_structured.csv",
-    "linux": DATA_ROOT / "Linux" / "Linux_2k.log_structured.csv",
-    "apache": DATA_ROOT / "Apache" / "Apache_2k.log_structured.csv",
-}
+    repo_data_root = REPO_ROOT / "data"
+    loghub_root = repo_data_root / "loghub"
+    if loghub_root.exists() and not (repo_data_root / "OpenStack").exists():
+        return loghub_root
+    return repo_data_root
+
+
+def build_dataset_paths(data_root: Path) -> dict[str, Path]:
+    return {
+        "openstack": data_root / "OpenStack" / "OpenStack_2k.log_structured.csv",
+        "openssh": data_root / "OpenSSH" / "OpenSSH_2k.log_structured.csv",
+        "linux": data_root / "Linux" / "Linux_2k.log_structured.csv",
+        "apache": data_root / "Apache" / "Apache_2k.log_structured.csv",
+    }
+
+
+DATA_ROOT = resolve_data_root()
+DATA_ROOT_LABEL = os.path.relpath(DATA_ROOT, REPO_ROOT)
+
+DATASET_PATHS: dict[str, Path] = build_dataset_paths(DATA_ROOT)
 
 REQUIRED_FIELDS: tuple[str, ...] = (
     "line_id",
