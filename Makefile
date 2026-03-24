@@ -1,9 +1,26 @@
-.PHONY: clean clean-cache clean-reports
+VENV ?= .venv
+PYTHON ?= $(VENV)/bin/python
+LOG_DATA_ROOT ?= data/loghub
 
-# make clean (perform all cleanup tasks)
+.PHONY: clean clean-cache clean-reports ingest retrieval pipeline pipeline-skip-llm test
+
+ingest:
+	LOG_DATA_ROOT=$(LOG_DATA_ROOT) $(PYTHON) -m src.ingestion.ingest_logs
+
+retrieval:
+	LOG_DATA_ROOT=$(LOG_DATA_ROOT) $(PYTHON) -m src.retrieval.build_retrieval_index
+
+pipeline: ingest retrieval
+	LOG_DATA_ROOT=$(LOG_DATA_ROOT) $(PYTHON) -m src.main
+
+pipeline-skip-llm: ingest retrieval
+	LOG_DATA_ROOT=$(LOG_DATA_ROOT) $(PYTHON) -m src.main --skip-llm
+
+test:
+	$(PYTHON) -m pytest
+
 clean: clean-cache clean-reports
 
-# make clean-cache (only want cache cleanup)
 clean-cache:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} +
 	find . -name ".DS_Store" -delete
@@ -11,7 +28,6 @@ clean-cache:
 	find . -type f -name "*.pyc" -delete
 	find . -type f -name "*.pyo" -delete
 
-# make clean-reports (only want to clean reports and normalized data)
 clean-reports:
 	find reports -maxdepth 1 -type f \( -name "*.json" -o -name "*.jsonl" \) -delete
 	find normalized -maxdepth 1 -type f \( -name "*.json" -o -name "*.jsonl" -o -name "*.npy" -o -name "*.index" \) -delete 2>/dev/null || true

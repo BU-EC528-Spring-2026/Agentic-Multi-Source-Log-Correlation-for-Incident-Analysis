@@ -1,40 +1,56 @@
-# Python cache and test artifacts
+out/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+.env
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.pytest_cache/
-.coverage
-htmlcov/
 
-# Virtual environments and environment files
+# Virtual environments
 venv/
+.env/
 .venv/
-.env
 
-# Build artifacts
+# MacOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Python packaging
 build/
 dist/
 *.egg-info/
 
-# IDE and OS metadata
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+# Logs
+*.log
+
+# Test output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# Data files (if logs/datasets are large)
+data/
+datasets/
 
 # Temporary files
 tmp/
 temp/
-out/
+
+# OS generated
+Thumbs.db
+# Backup files
 *.bak
-
-# Local datasets and generated pipeline outputs
-data/*
-!data/README.md
-datasets/
-normalized/
-reports/report.json
-
-# Logs
-*.log
