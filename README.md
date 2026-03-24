@@ -1,4 +1,4 @@
-# Agentic Multi-Source Log Correlation for Incident Analysis
+# Log pipeline backend
 
 This EC528 project explores how multi-agent LLM systems can help with incident analysis across heterogeneous logs. Instead of treating logs as isolated streams, the project aims to connect signals from sources such as authentication, networking, host or kernel activity, and application services to generate evidence-backed root cause hypotheses.
 
