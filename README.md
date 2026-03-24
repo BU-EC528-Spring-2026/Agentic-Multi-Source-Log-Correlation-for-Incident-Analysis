@@ -1,54 +1,149 @@
-# Log pipeline backend
+# Agentic Multi-Source Log Correlation for Incident Analysis
 
-This EC528 project explores how multi-agent LLM systems can help with incident analysis across heterogeneous logs. Instead of treating logs as isolated streams, the project aims to connect signals from sources such as authentication, networking, host or kernel activity, and application services to generate evidence-backed root cause hypotheses.
+This EC528 project explores how agentic workflows can analyze heterogeneous logs, extract source-specific findings, and correlate them into a single incident view.
 
-## Why This Project
+## Current Pipeline
 
-Real incidents often produce symptoms in many places at once, while the actual cause starts upstream in only one part of the system. Traditional log analysis can surface related events, but it does not always explain which events are causal and which are only correlated. Our project focuses on building an agentic workflow that retrieves relevant evidence, analyzes each source in context, and iteratively refines likely explanations.
+The current implementation supports an end-to-end pipeline in [src/main.py](/Users/jshao116/Documents/BU/EC528/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis/src/main.py):
 
-## Core Idea
+1. Load input from one of these sources, in order:
+   - `normalized/unified_logs.jsonl`
+   - structured LogHub CSV datasets under `data/` or `LOG_DATA_ROOT`
+   - a raw log file passed through `--log-file`
+   - the bundled demo fixture at `examples/demo_unified_logs.jsonl`
+2. Convert logs into canonical `LogEvent` objects.
+3. Run source-specific rule-based agents:
+   - auth agent
+   - OpenStack VM agent
+4. Run deterministic correlation over the canonical events.
+5. Optionally run LLM-based chunk analysis and cross-chunk correlation through OpenRouter.
+6. Write a combined report to `reports/report.json` by default.
 
-At a high level, the system is designed around four steps:
+## Project Layout
 
-1. Ingest and normalize logs from multiple sources into a structured format.
-2. Retrieve the most relevant evidence using a hybrid of keyword filtering and semantic search.
-3. Let source-specific agents analyze retrieved evidence and produce structured findings.
-4. Use a correlation agent to assemble those findings into ranked root cause hypotheses with supporting evidence and confidence estimates.
+- `src/main.py`: integrated pipeline entrypoint
+- `src/ingestion/ingest_logs.py`: normalize structured CSV datasets into unified JSONL
+- `src/agents/auth_agent.py`: auth anomaly detection
+- `src/agents/openstack_vm_agent.py`: OpenStack VM anomaly detection
+- `src/agents/correlation/correlation_agent.py`: deterministic event correlation
+- `src/agents/log_analyzer.py`: LLM-driven chunk analysis and correlation
+- `examples/demo_unified_logs.jsonl`: bundled demo input when no real data is present
+- `reports/`: generated reports and sample artifacts
 
-An optional critic or validator agent can challenge weak hypotheses and request additional retrieval before the final report is produced.
+## Installation
 
-## What Matters Most
+Create a Python environment and install dependencies:
 
-The main ideas pulled from the project spec are:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-- Multi-source reasoning is the central problem, not single-log summarization.
-- Retrieval quality matters, so the project uses both deterministic filtering and semantic similarity.
-- Agents should produce structured outputs, not just free-form explanations.
-- Final conclusions should be evidence-backed, ranked, and traceable to specific log lines.
-- The system should support iteration: retrieve more evidence, update the hypothesis, and stop when confidence stabilizes.
+## How To Run
 
-## Expected Outputs
+Run the fully local pipeline with no LLM calls:
 
-The end goal is a structured incident report that includes:
+```bash
+python -m src.main --skip-llm
+```
 
-- A concise incident summary
-- Ranked root cause hypotheses
-- Confidence scores
-- Evidence references
-- Timeline highlights
-- Suggested follow-up queries
+If no real datasets or raw logs are available, the pipeline falls back to `examples/demo_unified_logs.jsonl`. In that case the generated report will clearly show `input_mode: bundled_demo`.
 
-## Planned Stack
+Run the pipeline with LLM analysis enabled:
 
-- Python for the main implementation
-- Ollama locally in the initial phase, with OpenRouter as a planned upgrade path
-- Hybrid retrieval using regex or keyword search plus embeddings
-- A lightweight local storage layer such as JSON files or SQLite
-- Docker for reproducible deployment
+```bash
+export OPENROUTER_API_KEY=your_key_here
+python -m src.main
+```
 
-## Repository Status
+Use a specific normalized JSONL file:
 
-This repository is currently in an early stage and does not yet contain the full implementation described above. The README reflects the distilled project direction and intended system design from the EC528 spec.
+```bash
+python -m src.main --normalized-log-file /path/to/unified_logs.jsonl --skip-llm
+```
+
+Use a specific raw log file:
+
+```bash
+python -m src.main --log-file /path/to/logfile.log --skip-ingestion --skip-llm
+```
+
+Change the output path:
+
+```bash
+python -m src.main --skip-llm --output-file reports/my_report.json
+```
+
+## Using Real LogHub Data
+
+By default, ingestion looks for these files under `data/`:
+
+- `data/OpenStack/OpenStack_2k.log_structured.csv`
+- `data/OpenSSH/OpenSSH_2k.log_structured.csv`
+- `data/Linux/Linux_2k.log_structured.csv`
+- `data/Apache/Apache_2k.log_structured.csv`
+
+You can also point the pipeline at a different data root:
+
+```bash
+export LOG_DATA_ROOT=/absolute/path/to/loghub
+python -m src.main --skip-llm
+```
+
+When those structured CSVs are present and `normalized/unified_logs.jsonl` does not already exist, the pipeline will ingest them automatically.
+
+## Output
+
+The generated report includes:
+
+- pipeline metadata
+- detected source-agent findings
+- deterministic correlation groups
+- optional LLM analysis
+- chunk-level summaries and correlation hypotheses when LLM mode is enabled
+
+Default output file:
+
+```text
+reports/report.json
+```
+
+## Testing
+
+Run the test suite locally:
+
+```bash
+pytest -q
+```
+
+Show more detail:
+
+```bash
+pytest -vv
+```
+
+GitHub Actions also runs the test suite automatically on pushes and pull requests via `.github/workflows/tests.yml`.
+
+## Cleanup
+
+Use the Make targets to remove generated artifacts:
+
+```bash
+make clean
+```
+
+Available targets:
+
+- `make clean`: remove caches and generated reports
+- `make clean-cache`: remove `__pycache__`, `.pyc`, `.pytest_cache`, `.DS_Store`
+- `make clean-reports`: remove generated files under `reports/` and `normalized/`
+
+## Notes
+
+- The bundled demo input is static, but the report is still generated by the real pipeline code.
+- LLM mode requires `OPENROUTER_API_KEY`.
+- The retrieval module exists in `src/retrieval/`, but the main integrated runner currently focuses on ingestion, source-agent analysis, deterministic correlation, and optional LLM analysis.
 
 ## Demo Presentations
 
