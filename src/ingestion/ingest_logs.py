@@ -30,13 +30,34 @@ OUTPUT_SUMMARY = OUTPUT_DIR / "ingestion_summary.json"
 # External data root: LOG_DATA_ROOT env (default "data"), relative to repo or absolute
 _LOG_DATA_ROOT = os.environ.get("LOG_DATA_ROOT", "data")
 DATA_ROOT = Path(_LOG_DATA_ROOT) if Path(_LOG_DATA_ROOT).is_absolute() else REPO_ROOT / _LOG_DATA_ROOT
+LOGHUB_DATA_ROOT = DATA_ROOT / "loghub"
 
-DATASET_PATHS: dict[str, Path] = {
-    "openstack": DATA_ROOT / "OpenStack" / "OpenStack_2k.log_structured.csv",
-    "openssh": DATA_ROOT / "OpenSSH" / "OpenSSH_2k.log_structured.csv",
-    "linux": DATA_ROOT / "Linux" / "Linux_2k.log_structured.csv",
-    "apache": DATA_ROOT / "Apache" / "Apache_2k.log_structured.csv",
+DATASET_FILENAMES: dict[str, tuple[str, str]] = {
+    "openstack": ("OpenStack", "OpenStack_2k.log_structured.csv"),
+    "openssh": ("OpenSSH", "OpenSSH_2k.log_structured.csv"),
+    "linux": ("Linux", "Linux_2k.log_structured.csv"),
+    "apache": ("Apache", "Apache_2k.log_structured.csv"),
 }
+
+
+def resolve_dataset_paths() -> dict[str, Path]:
+    """
+    Support both of these layouts:
+    - data/OpenStack/OpenStack_2k.log_structured.csv
+    - data/loghub/OpenStack/OpenStack_2k.log_structured.csv
+    """
+    resolved: dict[str, Path] = {}
+    for dataset, (directory, filename) in DATASET_FILENAMES.items():
+        candidates = (
+            DATA_ROOT / directory / filename,
+            LOGHUB_DATA_ROOT / directory / filename,
+        )
+        existing = next((path for path in candidates if path.exists()), candidates[0])
+        resolved[dataset] = existing
+    return resolved
+
+
+DATASET_PATHS: dict[str, Path] = resolve_dataset_paths()
 
 REQUIRED_FIELDS: tuple[str, ...] = (
     "line_id",
