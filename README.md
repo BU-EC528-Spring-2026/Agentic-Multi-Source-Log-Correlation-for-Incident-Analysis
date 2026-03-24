@@ -1,67 +1,56 @@
 # Log pipeline backend
 
-Standalone backend for log ingestion, retrieval, and source agents. Reads structured LogHub-style CSVs from a configurable data root and produces normalized logs plus anomaly outputs.
+This EC528 project explores how multi-agent LLM systems can help with incident analysis across heterogeneous logs. Instead of treating logs as isolated streams, the project aims to connect signals from sources such as authentication, networking, host or kernel activity, and application services to generate evidence-backed root cause hypotheses.
 
-## Components
+## Why This Project
 
-- **Ingestion** — Loads OpenStack, OpenSSH, Linux, and Apache structured CSVs; normalizes timestamps and schema; writes `normalized/unified_logs.jsonl` and `normalized/ingestion_summary.json`.
-- **Retrieval** — Builds metadata JSONL, message embeddings, and a FAISS index over unified logs for semantic/keyword search.
-- **Auth agent** — Detects auth-related anomalies (repeated failures, invalid user, successful auth after failures, login burst) from Linux/OpenSSH logs.
-- **OpenStack VM agent** — Detects VM lifecycle anomalies (repeated restart cycle, unexpected stop, lifecycle churn) from OpenStack logs.
+Real incidents often produce symptoms in many places at once, while the actual cause starts upstream in only one part of the system. Traditional log analysis can surface related events, but it does not always explain which events are causal and which are only correlated. Our project focuses on building an agentic workflow that retrieves relevant evidence, analyzes each source in context, and iteratively refines likely explanations.
 
-## Data root (`LOG_DATA_ROOT`)
+## Core Idea
 
-Datasets are **not** stored in this repo. All dataset paths are under a single configurable root:
+At a high level, the system is designed around four steps:
 
-- **Environment variable:** `LOG_DATA_ROOT`
-- **Default:** `data` (relative to project root)
+1. Ingest and normalize logs from multiple sources into a structured format.
+2. Retrieve the most relevant evidence using a hybrid of keyword filtering and semantic search.
+3. Let source-specific agents analyze retrieved evidence and produce structured findings.
+4. Use a correlation agent to assemble those findings into ranked root cause hypotheses with supporting evidence and confidence estimates.
 
-Expected layout under that root:
+An optional critic or validator agent can challenge weak hypotheses and request additional retrieval before the final report is produced.
 
-- `LOG_DATA_ROOT/OpenStack/OpenStack_2k.log_structured.csv`
-- `LOG_DATA_ROOT/OpenSSH/OpenSSH_2k.log_structured.csv`
-- `LOG_DATA_ROOT/Linux/Linux_2k.log_structured.csv`
-- `LOG_DATA_ROOT/Apache/Apache_2k.log_structured.csv`
+## What Matters Most
 
-Use a path relative to the project (e.g. `data`) or an absolute path (e.g. `/opt/loghub`) so the same code works whether data lives inside the repo or in an external LogHub clone.
+The main ideas pulled from the project spec are:
 
-See `data/README.md` for required datasets and file names.
+- Multi-source reasoning is the central problem, not single-log summarization.
+- Retrieval quality matters, so the project uses both deterministic filtering and semantic similarity.
+- Agents should produce structured outputs, not just free-form explanations.
+- Final conclusions should be evidence-backed, ranked, and traceable to specific log lines.
+- The system should support iteration: retrieve more evidence, update the hypothesis, and stop when confidence stabilizes.
 
-## Running the pipeline
+## Expected Outputs
 
-From the project root:
+The end goal is a structured incident report that includes:
 
-```bash
-# Optional: use external data (e.g. LogHub clone)
-export LOG_DATA_ROOT=/path/to/loghub
+- A concise incident summary
+- Ranked root cause hypotheses
+- Confidence scores
+- Evidence references
+- Timeline highlights
+- Suggested follow-up queries
 
-# 1. Ingest
-python -m src.ingestion.ingest_logs
+## Planned Stack
 
-# 2. Build retrieval index (optional)
-python -m src.retrieval.build_retrieval_index
+- Python for the main implementation
+- Ollama locally in the initial phase, with OpenRouter as a planned upgrade path
+- Hybrid retrieval using regex or keyword search plus embeddings
+- A lightweight local storage layer such as JSON files or SQLite
+- Docker for reproducible deployment
 
-# 3. Run source agents
-python -m src.agents.auth_agent
-python -m src.agents.openstack_vm_agent
-```
+## Repository Status
 
-Outputs go under `normalized/`. Example anomaly records are in `reports/`.
+This repository is currently in an early stage and does not yet contain the full implementation described above. The README reflects the distilled project direction and intended system design from the EC528 spec.
 
-## Tests
+## Demo Presentations
 
-```bash
-pytest tests/ -v
-```
-
-## Project layout
-
-```
-src/
-  ingestion/   ingest_logs.py
-  retrieval/   build_retrieval_index.py
-  agents/      auth_agent.py, openstack_vm_agent.py
-tests/
-reports/       sample agent outputs
-data/README.md
-```
+- [Demo 1](https://docs.google.com/presentation/d/1GPAEH4Cf7paiDZ0z6zxIpxNn0OVbhj9mYld-0ZLKsgY/edit?slide=id.p#slide=id.p)
+- [Demo 2](https://docs.google.com/presentation/d/1utnqEQaKfqSOjF4wya7j3ddD0Xs1_japXFvNtP1JG6o/edit?usp=sharing)

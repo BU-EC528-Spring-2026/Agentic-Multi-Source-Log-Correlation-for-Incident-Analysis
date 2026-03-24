@@ -3,3 +3,14 @@ numpy
 sentence-transformers
 faiss-cpu
 pytest
+requests>=2.31.0
+python-dotenv>=1.0.0
+pytest>=8.0.0
+# Core dependencies
+python-dateutil>=2.8.2
+
+# Testing
+pytest>=7.4.0
+
+# Optional: helpful for debugging/logging
+rich>=13.7.0
