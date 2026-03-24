@@ -1,89 +1,56 @@
-## Agentic Multi-Source Log Correlation for Incident Analysis
+# Log pipeline backend
 
-Overview
+This EC528 project explores how multi-agent LLM systems can help with incident analysis across heterogeneous logs. Instead of treating logs as isolated streams, the project aims to connect signals from sources such as authentication, networking, host or kernel activity, and application services to generate evidence-backed root cause hypotheses.
 
-This project implements a multi-agent pipeline for analyzing structured log data from multiple sources. It was originally developed on a different branch, with the main log ingestion and agent components already implemented.
+## Why This Project
 
-The orchestrator agent is my addition, which coordinates multiple sub-agents to produce a unified set of incidents from the logs.
+Real incidents often produce symptoms in many places at once, while the actual cause starts upstream in only one part of the system. Traditional log analysis can surface related events, but it does not always explain which events are causal and which are only correlated. Our project focuses on building an agentic workflow that retrieves relevant evidence, analyzes each source in context, and iteratively refines likely explanations.
 
-Original Components
+## Core Idea
 
-AuthAgent – Detects authentication-related incidents from Linux and OpenSSH logs.
-OpenStackVMAgent – Detects OpenStack VM-related incidents.
-Ingestion scripts – Normalize logs from multiple sources into a unified JSONL format.
+At a high level, the system is designed around four steps:
 
-My Edits
+1. Ingest and normalize logs from multiple sources into a structured format.
+2. Retrieve the most relevant evidence using a hybrid of keyword filtering and semantic search.
+3. Let source-specific agents analyze retrieved evidence and produce structured findings.
+4. Use a correlation agent to assemble those findings into ranked root cause hypotheses with supporting evidence and confidence estimates.
 
-Added OrchestratorAgent in src/agents/orchestrator_agent.py.
-The orchestrator:
-Loads the unified log file.
-Runs all sub-agents (AuthAgent, OpenStackVMAgent, etc.).
-Collects incidents from each sub-agent.
-Writes combined results to normalized/orchestrator_output.json.
-Added logging for orchestrator-level events.
-Adjusted sub-agent constructors to accept a log_file argument for seamless integration.
+An optional critic or validator agent can challenge weak hypotheses and request additional retrieval before the final report is produced.
 
-Directory Structure
+## What Matters Most
 
-src/
-agents/
-auth_agent.py
-openstack_vm_agent.py
-orchestrator_agent.py # My addition
-ingestion/
-ingest_logs.py
-retrieval/
-build_retrieval_index.py
+The main ideas pulled from the project spec are:
 
-data/ – Folder containing structured log datasets (OpenStack, Linux, OpenSSH, Apache).
-normalized/ – Output folder where unified logs and agent outputs are stored.
+- Multi-source reasoning is the central problem, not single-log summarization.
+- Retrieval quality matters, so the project uses both deterministic filtering and semantic similarity.
+- Agents should produce structured outputs, not just free-form explanations.
+- Final conclusions should be evidence-backed, ranked, and traceable to specific log lines.
+- The system should support iteration: retrieve more evidence, update the hypothesis, and stop when confidence stabilizes.
 
-Setup Instructions
+## Expected Outputs
 
-Clone the repository (replace YOUR_USERNAME with your GitHub username):
+The end goal is a structured incident report that includes:
 
-git clone git@github.com
-:BU-EC528-Spring-2026/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis.git
-cd Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis
+- A concise incident summary
+- Ranked root cause hypotheses
+- Confidence scores
+- Evidence references
+- Timeline highlights
+- Suggested follow-up queries
 
-Set up a virtual environment:
+## Planned Stack
 
-python3 -m venv venv
-source venv/bin/activate (macOS/Linux)
-venv\Scripts\activate (Windows)
+- Python for the main implementation
+- Ollama locally in the initial phase, with OpenRouter as a planned upgrade path
+- Hybrid retrieval using regex or keyword search plus embeddings
+- A lightweight local storage layer such as JSON files or SQLite
+- Docker for reproducible deployment
 
-Install dependencies:
+## Repository Status
 
-pip install -r requirements.txt
+This repository is currently in an early stage and does not yet contain the full implementation described above. The README reflects the distilled project direction and intended system design from the EC528 spec.
 
-Download or copy the log data (if not already present):
-Logs are hosted in a separate repository (loghub) and need to be available locally:
+## Demo Presentations
 
-git clone https://github.com/logpai/loghub.git
- ~/loghub
-
-Ensure the following files exist:
-
-~/loghub/OpenStack/OpenStack_2k.log_structured.csv
-~/loghub/OpenSSH/OpenSSH_2k.log_structured.csv
-~/loghub/Linux/Linux_2k.log_structured.csv
-~/loghub/Apache/Apache_2k.log_structured.csv
-
-Or copy them into data/<source>/ inside this repo.
-Run log ingestion:
-
-PYTHONPATH=. python src/ingestion/ingest_logs.py
-
-Output: normalized/unified_logs.jsonl
-Run the orchestrator agent:
-
-PYTHONPATH=. python -c "from src.agents.orchestrator_agent import OrchestratorAgent; OrchestratorAgent('normalized/unified_logs.jsonl').run()"
-
-Output: normalized/orchestrator_output.json
-This file contains combined incidents from all sub-agents.
-
-Notes
-
-The orchestrator agent does not modify the original sub-agents. It simply runs them sequentially and collects their outputs.
-Logging is configured to provide status messages about the number of incidents detected by each sub-agent.
-For development, make sure PYTHONPATH=. is set to allow imports from src.
+- [Demo 1](https://docs.google.com/presentation/d/1GPAEH4Cf7paiDZ0z6zxIpxNn0OVbhj9mYld-0ZLKsgY/edit?slide=id.p#slide=id.p)
+- [Demo 2](https://docs.google.com/presentation/d/1utnqEQaKfqSOjF4wya7j3ddD0Xs1_japXFvNtP1JG6o/edit?usp=sharing)
