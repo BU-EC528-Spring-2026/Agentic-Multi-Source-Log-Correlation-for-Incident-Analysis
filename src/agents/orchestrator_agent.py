@@ -1,61 +1,56 @@
-# src/agents/orchestrator_agent.py
-
 import json
 import logging
 from pathlib import Path
-from src.agents.auth_agent import AuthAgent
-from src.agents.openstack_vm_agent import OpenStackVMAgent
+from typing import Any
+
+from src.agents.auth_agent import run_agent as run_auth_agent
+from src.agents.openstack_vm_agent import run_agent as run_openstack_vm_agent
+from src.common import load_logs
+
 
 class OrchestratorAgent:
     """
-    OrchestratorAgent coordinates multiple sub-agents to analyze logs
-    and produce a combined set of incidents. Currently runs:
-      - AuthAgent: detects authentication-related incidents
-      - OpenStackVMAgent: detects OpenStack VM-related incidents
+    Coordinate the rule-based source agents over normalized logs.
+
+    This wrapper keeps the older orchestrator entrypoint usable while delegating
+    to the current function-based agent implementations.
     """
-    
-    def __init__(self, log_file: str, output_file: str = "normalized/orchestrator_output.json"):
 
-        """
-        Initialize the orchestrator agent.
-
-        Args:
-            log_file: path to the unified log file to analyze.
-            output_file: path to write the combined incident output JSON.
-        """
-        
-        self.log_file = log_file
+    def __init__(
+        self,
+        log_file: str | Path,
+        output_file: str | Path = "normalized/orchestrator_output.json",
+    ) -> None:
+        self.log_file = Path(log_file)
         self.output_file = Path(output_file)
-        self.auth_agent = AuthAgent(log_file)
-        self.openstack_agent = OpenStackVMAgent(log_file)
         self.logger = logging.getLogger(__name__)
-        self.incidents = []
+        self.incidents: list[dict[str, Any]] = []
 
-    def run(self):
-        """Run all sub-agents, collect incidents, and write output JSON."""
+    def run(self) -> list[dict[str, Any]]:
         logging.basicConfig(level=logging.INFO)
         self.logger.info("Orchestrator agent is running")
 
-        # Run subagents
-        auth_incidents = self.auth_agent.run()
-        self.logger.info("AuthAgent produced %d incidents", len(auth_incidents))
+        if not self.log_file.exists():
+            raise FileNotFoundError(f"normalized log file not found: {self.log_file}")
 
-        openstack_incidents = self.openstack_agent.run()
-        self.logger.info("OpenStackVMAgent produced %d incidents", len(openstack_incidents))
+        logs = load_logs(self.log_file)
+        auth_incidents = run_auth_agent(logs)
+        openstack_incidents = run_openstack_vm_agent(logs)
 
-        # Combine incidents
         self.incidents = auth_incidents + openstack_incidents
-        self.logger.info("Orchestrator agent collected %d incidents total", len(self.incidents))
+        self.logger.info(
+            "Collected %d incidents across %d source agents",
+            len(self.incidents),
+            2,
+        )
 
-        # Ensure output directory exists
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write JSON output
-        with open(self.output_file, "w", encoding="utf-8") as f:
-            json.dump(self.incidents, f, indent=2, ensure_ascii=False)
+        with self.output_file.open("w", encoding="utf-8") as handle:
+            json.dump(self.incidents, handle, indent=2, ensure_ascii=False)
 
         self.logger.info("Orchestrator output written to %s", self.output_file)
+        return self.incidents
 
-# Example usage:
+
 if __name__ == "__main__":
     OrchestratorAgent("normalized/unified_logs.jsonl").run()
