@@ -1,17 +1,17 @@
 import argparse
 import json
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.agents.auth_agent import run_agent as run_auth_agent
 from src.agents.correlation.correlation_agent import (
     CorrelationAgent,
     LogEvent as CorrelationLogEvent,
 )
 from src.agents.log_analyzer import ReasoningAgent
-from src.agents.openstack_vm_agent import run_agent as run_openstack_vm_agent
+from src.agents.orchestrator_agent import run_source_agents
 from src.agents.source_adapters import analyze_auth_events, analyze_infra_events
 from src.common import load_logs
 from src.core.client import create_client
@@ -19,10 +19,15 @@ from src.core.config import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_RETRIES,
+    DEFAULT_PROVIDER,
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_SECONDS,
+    GROQ_API_KEY,
+    GROQ_CHUNK_SIZE,
+    GROQ_MODEL,
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
+    OPENROUTER_MODEL_CANDIDATES,
 )
 from src.core.log_event import (
     LogEvent,
@@ -32,6 +37,7 @@ from src.core.log_event import (
 )
 from src.core.log_parser import ParsedLog, chunk_logs, parse_logs
 from src.ingestion.ingest_logs import (
+    DATA_ROOT,
     DATASET_PATHS,
     OUTPUT_JSONL,
     OUTPUT_SUMMARY,
@@ -49,6 +55,7 @@ LOW_SIGNAL_MARKERS = (
 DEMO_NORMALIZED_LOG_FILE = (
     Path(__file__).resolve().parent.parent / "examples" / "demo_unified_logs.jsonl"
 )
+DEFAULT_RAW_LOG_FILE = str(DATA_ROOT / "Mac" / "Mac_2k.log")
 
 
 def load_log_file(path: str, max_lines: int) -> list[str]:
@@ -173,6 +180,13 @@ def prepare_pipeline_inputs(
         }
 
     if DEMO_NORMALIZED_LOG_FILE.exists():
+        missing_datasets = available_dataset_paths()
+        print(
+            "Warning: falling back to the bundled demo fixture because no normalized "
+            "JSONL, ingestible datasets, or raw log file were found. Run "
+            "`python -m src.ingestion.ingest_logs` first for the full LogHub pipeline.",
+            file=sys.stderr,
+        )
         records = load_normalized_records(DEMO_NORMALIZED_LOG_FILE)
         events, rejected = build_events_from_ingestion_records(records)
         if not events:
@@ -184,6 +198,7 @@ def prepare_pipeline_inputs(
             "event_count": len(events),
             "rejected_record_count": len(rejected),
             "rejected_examples": rejected[:20],
+            "missing_dataset_files": missing_datasets,
             "note": (
                 "No user-provided datasets or raw logs were found, so the pipeline "
                 "fell back to the bundled demo fixture."
@@ -338,7 +353,8 @@ def build_rule_correlation_summary(events: list[LogEvent]) -> dict[str, Any]:
 def run_llm_pipeline(
     *,
     events: list[LogEvent],
-    model: str,
+    provider: str,
+    models: list[str],
     api_key: str,
     chunk_size: int,
     temperature: float,
@@ -348,7 +364,8 @@ def run_llm_pipeline(
 ) -> dict[str, Any]:
     chunks = chunk_logs(events, chunk_size=chunk_size)
     llm = create_client(
-        model=model,
+        provider=provider,
+        models=models,
         api_key=api_key,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
@@ -391,8 +408,9 @@ def run_llm_pipeline(
     totals_dict = dict(sorted(totals.items()))
     return {
         "meta": {
-            "provider": "openrouter",
-            "model": model,
+            "provider": provider,
+            "model": llm.model,
+            "model_candidates": models,
             "chunk_size": chunk_size,
             "temperature": temperature,
             "seed": seed,
@@ -415,7 +433,8 @@ def run(
     log_file: str,
     normalized_log_file: str,
     output_file: str,
-    model: str,
+    provider: str = "groq",
+    models: list[str],
     api_key: str,
     chunk_size: int,
     max_lines: int,
@@ -454,9 +473,7 @@ def run(
     }:
         normalized_path = Path(str(input_meta["input_path"]))
         normalized_logs = load_normalized_records(normalized_path)
-        source_agent_results = run_auth_agent(normalized_logs) + run_openstack_vm_agent(
-            normalized_logs
-        )
+        source_agent_results = run_source_agents(normalized_logs)
         report["source_agents"] = {
             "summary": summarize_source_agent_results(source_agent_results),
             "findings": source_agent_results,
@@ -479,18 +496,20 @@ def run(
             "reason": "disabled via --skip-llm",
         }
     elif not api_key:
+        key_name = "groq_demo2_key / GROQ_API_KEY" if provider == "groq" else "OPENROUTER_API_KEY"
         if strict_llm:
             raise RuntimeError(
-                "OPENROUTER_API_KEY is not set. Export it in your shell or add it to .env"
+                f"{key_name} is not set. Export it in your shell or add it to .env"
             )
         report["llm_analysis"] = {
             "status": "skipped",
-            "reason": "OPENROUTER_API_KEY is not configured",
+            "reason": f"{key_name} is not configured",
         }
     else:
         report["llm_analysis"] = run_llm_pipeline(
             events=events,
-            model=model,
+            provider=provider,
+            models=models,
             api_key=api_key,
             chunk_size=chunk_size,
             temperature=temperature,
@@ -507,13 +526,22 @@ def run(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Integrated multi-source incident analysis pipeline",
+        description=(
+            "Integrated multi-source incident analysis pipeline. Retrieval index "
+            "construction is a separate step."
+        ),
     )
-    parser.add_argument("--log-file", default="loghub/Mac/Mac_2k.log")
+    parser.add_argument("--log-file", default=DEFAULT_RAW_LOG_FILE)
     parser.add_argument("--normalized-log-file", default=str(OUTPUT_JSONL))
     parser.add_argument("--output-file", default="reports/report.json")
-    parser.add_argument("--model", default=OPENROUTER_MODEL)
-    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
+    parser.add_argument(
+        "--provider",
+        default=DEFAULT_PROVIDER,
+        choices=["groq", "openrouter"],
+        help="LLM provider (default: groq when groq_demo2_key is set).",
+    )
+    parser.add_argument("--model", default=None)
+    parser.add_argument("--chunk-size", type=int, default=None)
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -537,13 +565,30 @@ def build_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     args = build_parser().parse_args()
     try:
+        provider = args.provider
+        if provider == "groq":
+            api_key = GROQ_API_KEY
+            model = args.model or GROQ_MODEL
+            cli_models = [model]
+        else:
+            api_key = OPENROUTER_API_KEY
+            model = args.model or OPENROUTER_MODEL
+            cli_models = (
+                [model] if model != OPENROUTER_MODEL else OPENROUTER_MODEL_CANDIDATES
+            )
+
+        chunk_size = args.chunk_size
+        if chunk_size is None:
+            chunk_size = GROQ_CHUNK_SIZE if provider == "groq" else DEFAULT_CHUNK_SIZE
+
         result = run(
             log_file=args.log_file,
             normalized_log_file=args.normalized_log_file,
             output_file=args.output_file,
-            model=args.model,
-            api_key=OPENROUTER_API_KEY,
-            chunk_size=args.chunk_size,
+            provider=provider,
+            models=cli_models,
+            api_key=api_key,
+            chunk_size=chunk_size,
             max_lines=args.max_lines,
             temperature=args.temperature,
             timeout_seconds=args.timeout_seconds,
@@ -555,8 +600,16 @@ if __name__ == "__main__":
             strict_llm=args.strict_llm,
         )
         print(f"Wrote report: {args.output_file}")
+        print(f"Provider: {provider} | Model: {model}")
         print(f"Input mode: {result['meta']['input_mode']}")
         print(f"Events analyzed: {result['meta']['event_count']}")
+        llm_status = result.get("llm_analysis", {}).get("status", "completed")
+        print(f"LLM status: {llm_status}")
+        if llm_status == "skipped":
+            reason = result.get("llm_analysis", {}).get("reason", "unknown")
+            print(f"LLM reason: {reason}")
+        if result.get("input", {}).get("note"):
+            print(result["input"]["note"])
     except Exception as exc:
         print(f"Error: {exc}")
         raise SystemExit(1) from exc
