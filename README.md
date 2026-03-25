@@ -201,5 +201,5 @@ Available targets:
 - [Demo 2](https://docs.google.com/presentation/d/1utnqEQaKfqSOjF4wya7j3ddD0Xs1_japXFvNtP1JG6o/edit?usp=sharing)
 
 ## Demo Vidoes
-- [Demo 2 Video] (https://drive.google.com/file/d/1jkHQeNHAx3Nc43OdNal3ZPx4cGNcUA32/view?usp=sharing)
+- [Demo 2 Video](https://drive.google.com/file/d/1jkHQeNHAx3Nc43OdNal3ZPx4cGNcUA32/view?usp=sharing)
   
