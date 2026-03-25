@@ -45,6 +45,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**Windows:** use `.\.venv\Scripts\Activate.ps1` (PowerShell) or `.venv\Scripts\activate.bat` (cmd) instead of `source .venv/bin/activate`. Without `make`, run the same commands as the [Makefile](Makefile): `python -m src.ingestion.ingest_logs`, `python -m src.retrieval.build_retrieval_index`, then `python -m src.main`, or you can use a 3rd party tool like `MSYS2` or `Cygwin` to install `make`.
+
 ## AWS Bedrock setup
 
 1. Install the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) and sign in (`aws configure`, or your organization’s SSO / IAM role flow).
