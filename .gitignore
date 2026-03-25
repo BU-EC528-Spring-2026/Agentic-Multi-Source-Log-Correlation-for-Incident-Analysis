@@ -54,3 +54,5 @@ temp/
 Thumbs.db
 # Backup files
 *.bak
+
+normalized/
