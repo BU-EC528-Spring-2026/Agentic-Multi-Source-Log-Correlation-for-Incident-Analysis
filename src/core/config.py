@@ -1,7 +1,28 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
+
+BEDROCK_REGION = (
+    os.getenv("BEDROCK_REGION", "")
+    or os.getenv("AWS_REGION", "")
+    or os.getenv("AWS_DEFAULT_REGION", "")
+).strip()
+BEDROCK_MODEL = (
+    os.getenv("BEDROCK_MODEL_ID", "").strip()
+    or os.getenv("BEDROCK_MODEL", "").strip()
+    or os.getenv("AWS_BEDROCK_MODEL_ID", "").strip()
+)
+
+
+def _aws_credentials_available() -> bool:
+    try:
+        import boto3
+
+        return boto3.Session().get_credentials() is not None
+    except Exception:
+        return False
+
 
 GROQ_API_KEY = os.getenv("groq_demo2_key", os.getenv("GROQ_API_KEY", ""))
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -31,12 +52,19 @@ def openrouter_model_candidates() -> list[str]:
     return out if out else ["openai/gpt-oss-120b:free"]
 
 
+def bedrock_configured(model: str | None = None) -> bool:
+    model_id = str(model or BEDROCK_MODEL).strip()
+    return bool(model_id and BEDROCK_REGION and _aws_credentials_available())
+
+
 def default_provider() -> str:
+    if bedrock_configured():
+        return "bedrock"
     if GROQ_API_KEY:
         return "groq"
     if OPENROUTER_API_KEY:
         return "openrouter"
-    return "groq"
+    return "bedrock"
 
 
 OPENROUTER_MODEL_CANDIDATES = openrouter_model_candidates()
@@ -48,3 +76,5 @@ DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 DEFAULT_CHUNK_SIZE = int(os.getenv("LOG_CHUNK_SIZE", "250"))
 GROQ_CHUNK_SIZE = int(os.getenv("GROQ_CHUNK_SIZE", "40"))
 DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "2000"))
+RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "8"))
+RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "1").strip() != "0"

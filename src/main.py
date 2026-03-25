@@ -16,6 +16,8 @@ from src.agents.source_adapters import analyze_auth_events, analyze_infra_events
 from src.common import load_logs
 from src.core.client import create_client
 from src.core.config import (
+    BEDROCK_MODEL,
+    BEDROCK_REGION,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_RETRIES,
@@ -28,6 +30,9 @@ from src.core.config import (
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
     OPENROUTER_MODEL_CANDIDATES,
+    RETRIEVAL_CONTEXT,
+    RETRIEVAL_TOP_K,
+    bedrock_configured,
 )
 from src.core.log_event import (
     LogEvent,
@@ -47,6 +52,7 @@ from src.ingestion.ingest_logs import (
     write_jsonl,
     write_summary_json,
 )
+from src.retrieval.rag_context import RetrievalContext
 
 LOW_SIGNAL_MARKERS = (
     "scheduler_evaluate_activity told me to run this job",
@@ -356,6 +362,7 @@ def run_llm_pipeline(
     provider: str,
     models: list[str],
     api_key: str,
+    region: str = "",
     chunk_size: int,
     temperature: float,
     timeout_seconds: int,
@@ -363,10 +370,12 @@ def run_llm_pipeline(
     seed: int | None,
 ) -> dict[str, Any]:
     chunks = chunk_logs(events, chunk_size=chunk_size)
+    retrieval_context = RetrievalContext.load() if RETRIEVAL_CONTEXT else None
     llm = create_client(
         provider=provider,
         models=models,
         api_key=api_key,
+        region=region,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
@@ -376,11 +385,18 @@ def run_llm_pipeline(
     chunk_analyses = []
     for chunk_id, chunk in enumerate(chunks, start=1):
         chunk_seed = None if seed is None else seed + chunk_id
+        retrieval_suffix = ""
+        if retrieval_context is not None:
+            retrieval_suffix = retrieval_context.build_chunk_suffix(
+                chunk,
+                top_k=RETRIEVAL_TOP_K,
+            )
         chunk_analyses.append(
             agent.analyze_chunk(
                 chunk_id=chunk_id,
                 entries=chunk,
                 seed=chunk_seed,
+                extra_user_suffix=retrieval_suffix,
             )
         )
 
@@ -415,6 +431,8 @@ def run_llm_pipeline(
             "temperature": temperature,
             "seed": seed,
             "chunk_count": len(chunks),
+            "retrieval_context": retrieval_context is not None,
+            "retrieval_top_k": RETRIEVAL_TOP_K if retrieval_context is not None else 0,
         },
         "overview": build_overview(correlation=correlation, totals=totals_dict),
         "inference": llm.get_inference_telemetry(),
@@ -433,9 +451,10 @@ def run(
     log_file: str,
     normalized_log_file: str,
     output_file: str,
-    provider: str = "groq",
+    provider: str = "bedrock",
     models: list[str],
     api_key: str,
+    region: str = "",
     chunk_size: int,
     max_lines: int,
     temperature: float,
@@ -446,6 +465,8 @@ def run(
     ingest_if_needed: bool,
     skip_llm: bool,
     strict_llm: bool,
+    provider_ready: bool | None = None,
+    provider_hint: str | None = None,
 ) -> dict[str, Any]:
     events, input_meta = prepare_pipeline_inputs(
         log_file=log_file,
@@ -495,22 +516,40 @@ def run(
             "status": "skipped",
             "reason": "disabled via --skip-llm",
         }
-    elif not api_key:
-        key_name = "groq_demo2_key / GROQ_API_KEY" if provider == "groq" else "OPENROUTER_API_KEY"
+    else:
+        if provider_ready is None:
+            if provider == "bedrock":
+                provider_ready = bedrock_configured(models[0] if models else "")
+            else:
+                provider_ready = bool(api_key)
+        if provider_hint is None:
+            if provider == "groq":
+                provider_hint = "groq_demo2_key / GROQ_API_KEY"
+            elif provider == "openrouter":
+                provider_hint = "OPENROUTER_API_KEY"
+            else:
+                provider_hint = (
+                    "BEDROCK_MODEL_ID or AWS_BEDROCK_MODEL_ID, region "
+                    "(BEDROCK_REGION or AWS_REGION), and AWS credentials "
+                    "(env or ~/.aws profile)"
+                )
+
+    if not skip_llm and not provider_ready:
         if strict_llm:
             raise RuntimeError(
-                f"{key_name} is not set. Export it in your shell or add it to .env"
+                f"{provider_hint} is not set. Export it in your shell or add it to .env"
             )
         report["llm_analysis"] = {
             "status": "skipped",
-            "reason": f"{key_name} is not configured",
+            "reason": f"{provider_hint} is not configured",
         }
-    else:
+    elif not skip_llm:
         report["llm_analysis"] = run_llm_pipeline(
             events=events,
             provider=provider,
             models=models,
             api_key=api_key,
+            region=region,
             chunk_size=chunk_size,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
@@ -537,8 +576,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--provider",
         default=DEFAULT_PROVIDER,
-        choices=["groq", "openrouter"],
-        help="LLM provider (default: groq when groq_demo2_key is set).",
+        choices=["bedrock", "groq", "openrouter"],
+        help="LLM provider (default selection: bedrock, then groq, then openrouter).",
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--chunk-size", type=int, default=None)
@@ -557,25 +596,58 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict-llm",
         action="store_true",
-        help="Fail instead of skipping when OPENROUTER_API_KEY is missing.",
+        help="Fail instead of skipping when provider credentials are missing.",
     )
     return parser
+
+
+def resolve_provider_settings(
+    provider: str,
+    model_override: str | None,
+) -> tuple[str, list[str], str, str, bool, str]:
+    if provider == "bedrock":
+        model = (model_override or BEDROCK_MODEL).strip()
+        return (
+            model,
+            [model] if model else [],
+            "",
+            BEDROCK_REGION,
+            bedrock_configured(model),
+            (
+                "BEDROCK_MODEL_ID or AWS_BEDROCK_MODEL_ID, region, "
+                "and AWS credentials (env or ~/.aws profile)"
+            ),
+        )
+    if provider == "groq":
+        model = (model_override or GROQ_MODEL).strip()
+        return (
+            model,
+            [model] if model else [],
+            GROQ_API_KEY,
+            "",
+            bool(GROQ_API_KEY),
+            "groq_demo2_key / GROQ_API_KEY",
+        )
+
+    model = (model_override or OPENROUTER_MODEL).strip()
+    models = [model] if model and model != OPENROUTER_MODEL else OPENROUTER_MODEL_CANDIDATES
+    return (
+        model,
+        models,
+        OPENROUTER_API_KEY,
+        "",
+        bool(OPENROUTER_API_KEY),
+        "OPENROUTER_API_KEY",
+    )
 
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
     try:
         provider = args.provider
-        if provider == "groq":
-            api_key = GROQ_API_KEY
-            model = args.model or GROQ_MODEL
-            cli_models = [model]
-        else:
-            api_key = OPENROUTER_API_KEY
-            model = args.model or OPENROUTER_MODEL
-            cli_models = (
-                [model] if model != OPENROUTER_MODEL else OPENROUTER_MODEL_CANDIDATES
-            )
+        model, cli_models, api_key, region, provider_ready, provider_hint = (
+            resolve_provider_settings(provider, args.model)
+        )
 
         chunk_size = args.chunk_size
         if chunk_size is None:
@@ -588,6 +660,7 @@ if __name__ == "__main__":
             provider=provider,
             models=cli_models,
             api_key=api_key,
+            region=region,
             chunk_size=chunk_size,
             max_lines=args.max_lines,
             temperature=args.temperature,
@@ -598,6 +671,8 @@ if __name__ == "__main__":
             ingest_if_needed=not args.skip_ingestion,
             skip_llm=args.skip_llm,
             strict_llm=args.strict_llm,
+            provider_ready=provider_ready,
+            provider_hint=provider_hint,
         )
         print(f"Wrote report: {args.output_file}")
         print(f"Provider: {provider} | Model: {model}")
