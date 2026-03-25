@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generated_at_utc": "2026-03-24T19:56:28.201713+00:00",
+    "generated_at_utc": "2026-03-25T01:59:09.280757+00:00",
     "input_mode": "normalized_jsonl",
     "input_path": "/Users/siddvrth/Desktop/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis/normalized/unified_logs.jsonl",
     "event_count": 8000
@@ -3587,6 +3587,6 @@
   },
   "llm_analysis": {
     "status": "skipped",
-    "reason": "groq_demo2_key / GROQ_API_KEY is not configured"
+    "reason": "disabled via --skip-llm"
   }
 }
