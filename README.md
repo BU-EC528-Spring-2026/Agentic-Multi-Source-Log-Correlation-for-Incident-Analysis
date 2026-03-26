@@ -45,7 +45,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Windows:** use `.\.venv\Scripts\Activate.ps1` (PowerShell) or `.venv\Scripts\activate.bat` (cmd) instead of `source .venv/bin/activate`. Without `make`, run the same commands as the [Makefile](Makefile): `python -m src.ingestion.ingest_logs`, `python -m src.retrieval.build_retrieval_index`, then `python -m src.main`, or you can use a 3rd party tool like `MSYS2` or `Cygwin` to install `make`.
+**Windows:** use `.\.venv\Scripts\Activate.ps1` (PowerShell) or `.venv\Scripts\activate.bat` (cmd) instead of `source .venv/bin/activate`. If PowerShell blocks the activation script, use cmd + `activate.bat`, or call the venv Python directly, e.g. `.venv\Scripts\python.exe -m pip install -r requirements.txt`.
+
+Without `make`, run the same modules as the [Makefile](Makefile) from the repo root: `python -m src.ingestion.ingest_logs`, `python -m src.retrieval.build_retrieval_index`, then `python -m src.main`. The Makefile sets `LOG_DATA_ROOT` to `data/loghub` by default; if your CSVs live there, set that variable the same way before the `python -m` steps (cmd: `set LOG_DATA_ROOT=data\loghub`, PowerShell: `$env:LOG_DATA_ROOT="data\loghub"`). If the datasets are under `data/OpenStack`, … as in [Using Real LogHub Data](#using-real-loghub-data), you can omit `LOG_DATA_ROOT` unless you use a custom path. WSL, Git Bash, or MSYS2 are fine if you want `make` itself.
 
 ## AWS Bedrock setup
 
@@ -60,6 +62,8 @@ export AWS_REGION=us-east-1
 export BEDROCK_MODEL_ID=global.anthropic.claude-sonnet-4-6
 ```
 
+On Windows, use cmd (`set AWS_REGION=us-east-1`, `set BEDROCK_MODEL_ID=...`) or PowerShell (`$env:AWS_REGION="us-east-1"; $env:BEDROCK_MODEL_ID="..."`) instead of `export`.
+
 `BEDROCK_MODEL_ID` can also be set as `BEDROCK_MODEL` or `AWS_BEDROCK_MODEL_ID`. If `AWS_REGION` is unset, `BEDROCK_REGION` or `AWS_DEFAULT_REGION` are used.
 
 ## Workflow
@@ -69,7 +73,7 @@ Ingest, build the retrieval index, then run Bedrock-backed `main` (same sequence
 From the **repository root**, with the venv activated:
 
 1. **Data** — Place the structured CSVs under `data/` as described in [Using Real LogHub Data](#using-real-loghub-data), or point at your tree with `LOG_DATA_ROOT`. If `normalized/unified_logs.jsonl` is already present, ingest is optional.
-2. **Ingest** — `make ingest` (or `LOG_DATA_ROOT=... make ingest` if your CSVs are not under `data/`).
+2. **Ingest** — `make ingest` (or `LOG_DATA_ROOT=... make ingest` if your CSVs are not under the default root). On Windows without `make`, set `LOG_DATA_ROOT` first if needed, then `python -m src.ingestion.ingest_logs`.
 3. **Retrieval index** — `make retrieval` (needed for the same retrieval-augmented chunk context as the sample report).
 4. **Pipeline** —
 
@@ -115,6 +119,8 @@ Use a specific normalized JSONL file:
 python -m src.main --normalized-log-file /path/to/unified_logs.jsonl --skip-llm
 ```
 
+On Windows, pass a normal path such as `C:\path\to\unified_logs.jsonl` (forward slashes work too).
+
 Use a specific raw log file:
 
 ```bash
@@ -129,7 +135,7 @@ python -m src.main --skip-llm --output-file reports/my_report.json
 
 ## Using Real LogHub Data
 
-By default, ingestion looks for these files under `data/`:
+By default, ingestion looks for these files under `data/`. The Makefile sets `LOG_DATA_ROOT` to `data/loghub`, so the same layout under `data/loghub/OpenStack/...` and siblings is equivalent when you use `make` or set that variable yourself:
 
 - `data/OpenStack/OpenStack_2k.log_structured.csv`
 - `data/OpenSSH/OpenSSH_2k.log_structured.csv`
@@ -142,6 +148,8 @@ You can also point the pipeline at a different data root:
 export LOG_DATA_ROOT=/absolute/path/to/loghub
 python -m src.main --skip-llm
 ```
+
+On Windows, set `LOG_DATA_ROOT` with `set` or `$env:` to your folder (the repo root is still the working directory when you run `python -m`).
 
 When those structured CSVs are present and `normalized/unified_logs.jsonl` does not already exist, the pipeline will ingest them automatically.
 
@@ -166,14 +174,16 @@ reports/report.json
 Run the test suite locally:
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 Show more detail:
 
 ```bash
-pytest -vv
+python -m pytest -vv
 ```
+
+If the venv is activated and `pytest` is on your PATH, plain `pytest` works too.
 
 GitHub Actions also runs the test suite automatically on pushes and pull requests via `.github/workflows/tests.yml`.
 
@@ -184,6 +194,8 @@ Use the Make targets to remove generated artifacts:
 ```bash
 make clean
 ```
+
+`clean` relies on Unix `find`; on Windows use Git Bash, WSL, or delete the listed folders/files by hand if `make clean` is not available.
 
 Available targets:
 
