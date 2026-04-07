@@ -95,6 +95,32 @@ def load_events_from_ingestion_jsonl(
     return events, rejected
 
 
+<<<<<<< HEAD
+=======
+def build_events_from_ingestion_records(
+    records: list[dict[str, Any]],
+) -> tuple[list[LogEvent], list[dict[str, Any]]]:
+    events: list[LogEvent] = []
+    rejected: list[dict[str, Any]] = []
+
+    for index, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            rejected.append(
+                {
+                    "line_number": index,
+                    "reason": "ingestion record must be a JSON object",
+                }
+            )
+            continue
+        try:
+            events.append(build_event_from_ingestion_record(record))
+        except ValueError as exc:
+            rejected.append({"line_number": index, "reason": str(exc)})
+
+    return events, rejected
+
+
+>>>>>>> main
 def build_event_from_ingestion_record(item: dict[str, Any]) -> LogEvent:
     used: set[str] = set()
 

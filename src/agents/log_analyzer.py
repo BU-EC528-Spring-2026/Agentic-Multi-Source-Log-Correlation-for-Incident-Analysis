@@ -23,6 +23,13 @@ CATEGORIES = {
     "other",
 }
 
+<<<<<<< HEAD
+=======
+CATEGORY_COUNT_PROPERTIES = {
+    category: {"type": "integer"} for category in sorted(CATEGORIES)
+}
+
+>>>>>>> main
 CATEGORY_ALIASES = {
     "dns": "dns_service_discovery",
     "security": "authz_security",
@@ -43,7 +50,14 @@ CHUNK_ANALYSIS_SCHEMA = {
         "chunk_id": {"type": "integer"},
         "line_start": {"type": "integer"},
         "line_end": {"type": "integer"},
+<<<<<<< HEAD
         "category_counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+=======
+        "category_counts": {
+            "type": "object",
+            "properties": CATEGORY_COUNT_PROPERTIES,
+        },
+>>>>>>> main
         "top_findings": {
             "type": "array",
             "items": {
@@ -96,7 +110,14 @@ CORRELATION_SCHEMA = {
     "type": "object",
     "properties": {
         "global_summary": {"type": "string"},
+<<<<<<< HEAD
         "category_totals": {"type": "object", "additionalProperties": {"type": "integer"}},
+=======
+        "category_totals": {
+            "type": "object",
+            "properties": CATEGORY_COUNT_PROPERTIES,
+        },
+>>>>>>> main
         "key_correlations": {
             "type": "array",
             "items": {
@@ -144,6 +165,10 @@ class ReasoningAgent:
         chunk_id: int,
         entries: list[LogEvent],
         seed: int | None = None,
+<<<<<<< HEAD
+=======
+        extra_user_suffix: str = "",
+>>>>>>> main
     ) -> dict:
         if not entries:
             raise ValueError("entries cannot be empty")
@@ -157,6 +182,11 @@ class ReasoningAgent:
             log_block=format_log_events_for_llm(entries),
             category_taxonomy=CATEGORY_TAXONOMY,
         )
+<<<<<<< HEAD
+=======
+        if extra_user_suffix.strip():
+            prompt = f"{prompt}\n\n{extra_user_suffix.strip()}"
+>>>>>>> main
         analysis = self.llm.chat_structured(
             schema=CHUNK_ANALYSIS_SCHEMA,
             system_prompt=LOG_CATEGORIZATION_SYSTEM,
