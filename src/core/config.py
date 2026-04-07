@@ -1,12 +1,6 @@
 import os
 from dotenv import load_dotenv
 
-<<<<<<< HEAD
-load_dotenv()
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
-=======
 load_dotenv(override=True)
 
 BEDROCK_REGION = (
@@ -76,16 +70,11 @@ def default_provider() -> str:
 OPENROUTER_MODEL_CANDIDATES = openrouter_model_candidates()
 OPENROUTER_MODEL = OPENROUTER_MODEL_CANDIDATES[0]
 DEFAULT_PROVIDER = default_provider()
->>>>>>> main
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 DEFAULT_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 DEFAULT_CHUNK_SIZE = int(os.getenv("LOG_CHUNK_SIZE", "250"))
-<<<<<<< HEAD
-DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "2000"))
-=======
 GROQ_CHUNK_SIZE = int(os.getenv("GROQ_CHUNK_SIZE", "40"))
-DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "2000"))
+DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "1000"))
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "8"))
 RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "1").strip() != "0"
->>>>>>> main

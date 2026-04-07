@@ -1,24 +1,5 @@
 import argparse
 import json
-<<<<<<< HEAD
-from collections import Counter
-from datetime import datetime, timezone
-from pathlib import Path
-
-from src.agents.log_analyzer import ReasoningAgent
-from src.core.client import create_client
-from src.core.config import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_MAX_LINES,
-    DEFAULT_MAX_RETRIES,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TIMEOUT_SECONDS,
-    OPENROUTER_API_KEY,
-    OPENROUTER_MODEL,
-)
-from src.core.log_event import build_events, build_source_name
-from src.core.log_parser import ParsedLog, chunk_logs, parse_logs
-=======
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -72,32 +53,23 @@ from src.ingestion.ingest_logs import (
     write_summary_json,
 )
 from src.retrieval.rag_context import RetrievalContext
->>>>>>> main
 
 LOW_SIGNAL_MARKERS = (
     "scheduler_evaluate_activity told me to run this job",
     "location icon should now be in state",
 )
-<<<<<<< HEAD
-=======
 DEMO_NORMALIZED_LOG_FILE = (
     Path(__file__).resolve().parent.parent / "examples" / "demo_unified_logs.jsonl"
 )
 DEFAULT_RAW_LOG_FILE = str(DATA_ROOT / "Mac" / "Mac_2k.log")
->>>>>>> main
 
 
 def load_log_file(path: str, max_lines: int) -> list[str]:
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"log file not found: {p}")
-<<<<<<< HEAD
-    with p.open("r", encoding="utf-8", errors="replace") as f:
-        lines = [line for _, line in zip(range(max_lines), f)]
-=======
     with p.open("r", encoding="utf-8", errors="replace") as handle:
         lines = [line for _, line in zip(range(max_lines), handle)]
->>>>>>> main
     return lines
 
 
@@ -118,9 +90,6 @@ def drop_low_signal_lines(
     return kept, dropped
 
 
-<<<<<<< HEAD
-def build_chunk_overview(chunk_analyses: list[dict]) -> list[dict]:
-=======
 def available_dataset_paths() -> list[str]:
     missing = []
     for path in DATASET_PATHS.values():
@@ -159,6 +128,8 @@ def prepare_pipeline_inputs(
 
     if normalized_path.exists():
         records = load_normalized_records(normalized_path)
+        if max_lines and len(records) > max_lines:
+            records = records[:max_lines]
         events, rejected = build_events_from_ingestion_records(records)
         if not events:
             raise RuntimeError("normalized log file did not contain any usable events")
@@ -175,6 +146,8 @@ def prepare_pipeline_inputs(
         missing = available_dataset_paths()
         if not missing:
             records, ingestion_summary = ingest_normalized_logs()
+            if max_lines and len(records) > max_lines:
+                records = records[:max_lines]
             events, rejected = build_events_from_ingestion_records(records)
             if not events:
                 raise RuntimeError("ingestion completed but produced no usable events")
@@ -225,6 +198,8 @@ def prepare_pipeline_inputs(
             file=sys.stderr,
         )
         records = load_normalized_records(DEMO_NORMALIZED_LOG_FILE)
+        if max_lines and len(records) > max_lines:
+            records = records[:max_lines]
         events, rejected = build_events_from_ingestion_records(records)
         if not events:
             raise RuntimeError("bundled demo log file did not contain any usable events")
@@ -252,7 +227,6 @@ def prepare_pipeline_inputs(
 
 
 def build_chunk_overview(chunk_analyses: list[dict[str, Any]]) -> list[dict[str, Any]]:
->>>>>>> main
     overview = []
     for item in chunk_analyses:
         category_counts = item.get("category_counts", {})
@@ -273,11 +247,7 @@ def build_chunk_overview(chunk_analyses: list[dict[str, Any]]) -> list[dict[str,
     return overview
 
 
-<<<<<<< HEAD
-def build_overview(correlation: dict, totals: dict[str, int]) -> dict:
-=======
 def build_overview(correlation: dict[str, Any], totals: dict[str, int]) -> dict[str, Any]:
->>>>>>> main
     top_categories = sorted(
         [{"category": key, "count": value} for key, value in totals.items()],
         key=lambda entry: entry["count"],
@@ -304,16 +274,6 @@ def build_overview(correlation: dict[str, Any], totals: dict[str, int]) -> dict[
     }
 
 
-<<<<<<< HEAD
-def run(
-    *,
-    log_file: str,
-    output_file: str,
-    model: str,
-    api_key: str,
-    chunk_size: int,
-    max_lines: int,
-=======
 def summarize_source_agent_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     by_category = Counter()
     by_severity = Counter()
@@ -410,37 +370,10 @@ def run_llm_pipeline(
     api_key: str,
     region: str = "",
     chunk_size: int,
->>>>>>> main
     temperature: float,
     timeout_seconds: int,
     max_retries: int,
     seed: int | None,
-<<<<<<< HEAD
-    drop_low_signal: bool,
-) -> dict:
-    if not api_key:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. "
-            "Export it in your shell or add it to .env"
-        )
-
-    raw_lines = load_log_file(log_file, max_lines=max_lines)
-    parsed_lines, skipped_lines = parse_logs(raw_lines)
-    parsed_before_filter_count = len(parsed_lines)
-    parsed_lines, dropped_low_signal_count = drop_low_signal_lines(
-        parsed_lines,
-        enabled=drop_low_signal,
-    )
-    if not parsed_lines:
-        raise RuntimeError("No parsable log lines found in input file")
-
-    source = build_source_name(log_file)
-    events = build_events(parsed_lines, source=source)
-    chunks = chunk_logs(events, chunk_size=chunk_size)
-    llm = create_client(
-        model=model,
-        api_key=api_key,
-=======
 ) -> dict[str, Any]:
     chunks = chunk_logs(events, chunk_size=chunk_size)
     retrieval_context = RetrievalContext.load() if RETRIEVAL_CONTEXT else None
@@ -449,7 +382,6 @@ def run_llm_pipeline(
         models=models,
         api_key=api_key,
         region=region,
->>>>>>> main
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
@@ -459,25 +391,17 @@ def run_llm_pipeline(
     chunk_analyses = []
     for chunk_id, chunk in enumerate(chunks, start=1):
         chunk_seed = None if seed is None else seed + chunk_id
-<<<<<<< HEAD
-=======
         retrieval_suffix = ""
         if retrieval_context is not None:
             retrieval_suffix = retrieval_context.build_chunk_suffix(
                 chunk,
                 top_k=RETRIEVAL_TOP_K,
             )
->>>>>>> main
         chunk_analyses.append(
             agent.analyze_chunk(
                 chunk_id=chunk_id,
                 entries=chunk,
                 seed=chunk_seed,
-<<<<<<< HEAD
-            )
-        )
-
-=======
                 extra_user_suffix=retrieval_suffix,
             )
         )
@@ -497,7 +421,6 @@ def run_llm_pipeline(
         ),
     }
 
->>>>>>> main
     correlation = agent.correlate(chunk_analyses=chunk_analyses, seed=seed)
 
     totals = Counter()
@@ -505,36 +428,6 @@ def run_llm_pipeline(
         totals.update(item.get("category_counts", {}))
 
     totals_dict = dict(sorted(totals.items()))
-<<<<<<< HEAD
-    overview = build_overview(correlation=correlation, totals=totals_dict)
-    inference = llm.get_inference_telemetry()
-
-    report = {
-        "meta": {
-            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-            "provider": "openrouter",
-            "model": model,
-            "log_file": str(Path(log_file).resolve()),
-            "source": source,
-            "max_lines": max_lines,
-            "chunk_size": chunk_size,
-            "temperature": temperature,
-            "seed": seed,
-            "raw_line_count": len(raw_lines),
-            "parsed_line_count": parsed_before_filter_count,
-            "parsed_after_filter_count": len(parsed_lines),
-            "skipped_line_count": len(skipped_lines),
-            "dropped_low_signal_count": dropped_low_signal_count,
-            "chunk_count": len(chunks),
-            "low_signal_filter_enabled": drop_low_signal,
-        },
-        "parser": {
-            "skip_rate": round(len(skipped_lines) / max(1, len(raw_lines)), 4),
-            "skipped_examples": skipped_lines[:20],
-        },
-        "overview": overview,
-        "inference": inference,
-=======
     return {
         "meta": {
             "provider": provider,
@@ -549,17 +442,11 @@ def run_llm_pipeline(
         },
         "overview": build_overview(correlation=correlation, totals=totals_dict),
         "inference": llm.get_inference_telemetry(),
->>>>>>> main
         "chunk_overview": build_chunk_overview(chunk_analyses),
         "details": {
             "category_totals_from_chunks": totals_dict,
             "correlation_report": correlation,
             "chunk_analyses": chunk_analyses,
-<<<<<<< HEAD
-        },
-    }
-
-=======
             "source_scoped_chunk_analyses": source_scoped,
         },
     }
@@ -676,7 +563,6 @@ def run(
             seed=seed,
         )
 
->>>>>>> main
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -685,14 +571,6 @@ def run(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-<<<<<<< HEAD
-        description="LLM log categorization + correlation via OpenRouter",
-    )
-    parser.add_argument("--log-file", default="loghub/Mac/Mac_2k.log")
-    parser.add_argument("--output-file", default="reports/report.json")
-    parser.add_argument("--model", default=OPENROUTER_MODEL)
-    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
-=======
         description=(
             "Integrated multi-source incident analysis pipeline. Retrieval index "
             "construction is a separate step."
@@ -709,27 +587,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--chunk-size", type=int, default=None)
->>>>>>> main
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--drop-low-signal", action="store_true")
-<<<<<<< HEAD
-    return parser
-
-
-if __name__ == "__main__":
-    args = build_parser().parse_args()
-    try:
-        result = run(
-            log_file=args.log_file,
-            output_file=args.output_file,
-            model=args.model,
-            api_key=OPENROUTER_API_KEY,
-            chunk_size=args.chunk_size,
-=======
     parser.add_argument(
         "--skip-ingestion",
         action="store_true",
@@ -805,18 +668,12 @@ if __name__ == "__main__":
             api_key=api_key,
             region=region,
             chunk_size=chunk_size,
->>>>>>> main
             max_lines=args.max_lines,
             temperature=args.temperature,
             timeout_seconds=args.timeout_seconds,
             max_retries=args.max_retries,
             seed=args.seed,
             drop_low_signal=args.drop_low_signal,
-<<<<<<< HEAD
-        )
-        print(f"Wrote report: {args.output_file}")
-        print(f"Summary: {result['overview']['global_summary']}")
-=======
             ingest_if_needed=not args.skip_ingestion,
             skip_llm=args.skip_llm,
             strict_llm=args.strict_llm,
@@ -834,7 +691,6 @@ if __name__ == "__main__":
             print(f"LLM reason: {reason}")
         if result.get("input", {}).get("note"):
             print(result["input"]["note"])
->>>>>>> main
     except Exception as exc:
         print(f"Error: {exc}")
         raise SystemExit(1) from exc
