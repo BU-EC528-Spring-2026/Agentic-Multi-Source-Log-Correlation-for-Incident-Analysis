@@ -19,6 +19,7 @@ from src.core.config import (
     BEDROCK_MODEL,
     BEDROCK_REGION,
     DEFAULT_CHUNK_SIZE,
+    DEFAULT_CHUNK_STRATEGY,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_RETRIES,
     DEFAULT_PROVIDER,
@@ -40,7 +41,7 @@ from src.core.log_event import (
     build_events_from_ingestion_records,
     build_source_name,
 )
-from src.core.log_parser import ParsedLog, chunk_logs, parse_logs
+from src.core.log_parser import ParsedLog, chunk_logs, chunk_logs_adaptive, parse_logs
 from src.ingestion.ingest_logs import (
     DATA_ROOT,
     DATASET_PATHS,
@@ -370,12 +371,16 @@ def run_llm_pipeline(
     api_key: str,
     region: str = "",
     chunk_size: int,
+    chunk_strategy: str = "adaptive",
     temperature: float,
     timeout_seconds: int,
     max_retries: int,
     seed: int | None,
 ) -> dict[str, Any]:
-    chunks = chunk_logs(events, chunk_size=chunk_size)
+    if chunk_strategy == "adaptive":
+        chunks = chunk_logs_adaptive(events, chunk_size=chunk_size)
+    else:
+        chunks = chunk_logs(events, chunk_size=chunk_size)
     retrieval_context = RetrievalContext.load() if RETRIEVAL_CONTEXT else None
     llm = create_client(
         provider=provider,
@@ -434,6 +439,7 @@ def run_llm_pipeline(
             "model": llm.model,
             "model_candidates": models,
             "chunk_size": chunk_size,
+            "chunk_strategy": chunk_strategy,
             "temperature": temperature,
             "seed": seed,
             "chunk_count": len(chunks),
@@ -462,6 +468,7 @@ def run(
     api_key: str,
     region: str = "",
     chunk_size: int,
+    chunk_strategy: str = "adaptive",
     max_lines: int,
     temperature: float,
     timeout_seconds: int,
@@ -557,6 +564,7 @@ def run(
             api_key=api_key,
             region=region,
             chunk_size=chunk_size,
+            chunk_strategy=chunk_strategy,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
@@ -587,6 +595,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--chunk-size", type=int, default=None)
+    parser.add_argument(
+        "--chunk-strategy",
+        default=DEFAULT_CHUNK_STRATEGY,
+        choices=["fixed", "adaptive"],
+    )
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -668,6 +681,7 @@ if __name__ == "__main__":
             api_key=api_key,
             region=region,
             chunk_size=chunk_size,
+            chunk_strategy=args.chunk_strategy,
             max_lines=args.max_lines,
             temperature=args.temperature,
             timeout_seconds=args.timeout_seconds,

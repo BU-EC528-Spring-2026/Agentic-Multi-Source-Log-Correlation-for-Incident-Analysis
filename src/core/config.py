@@ -76,5 +76,6 @@ DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 DEFAULT_CHUNK_SIZE = int(os.getenv("LOG_CHUNK_SIZE", "250"))
 GROQ_CHUNK_SIZE = int(os.getenv("GROQ_CHUNK_SIZE", "40"))
 DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "1000"))
+DEFAULT_CHUNK_STRATEGY = os.getenv("CHUNK_STRATEGY", "adaptive").strip().lower()
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "8"))
 RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "1").strip() != "0"
