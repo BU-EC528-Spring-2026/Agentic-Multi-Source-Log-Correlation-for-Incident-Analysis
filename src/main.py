@@ -293,6 +293,31 @@ def summarize_source_agent_results(results: list[dict[str, Any]]) -> dict[str, A
     }
 
 
+MAX_SOURCE_AGENT_FINDINGS = 10
+
+
+def format_source_agent_findings(findings: list[dict[str, Any]]) -> str:
+    high = [f for f in findings if str(f.get("severity", "")).upper() == "HIGH"]
+    if not high:
+        return ""
+    high = high[:MAX_SOURCE_AGENT_FINDINGS]
+    lines = ["Source-agent findings (rule-based, HIGH severity only):"]
+    for f in high:
+        agent = f.get("agent", "unknown")
+        cat = f.get("event_category", "")
+        summary = f.get("summary", "")
+        ts_start = f.get("start_timestamp", "")
+        ts_end = f.get("end_timestamp", "")
+        evidence = f.get("evidence_ids", [])
+        entry = f"- [{agent}] {cat}: {summary}"
+        if ts_start:
+            entry += f" ({ts_start} - {ts_end})"
+        if evidence:
+            entry += f" [evidence: {', '.join(str(e) for e in evidence[:5])}]"
+        lines.append(entry)
+    return "\n".join(lines)
+
+
 def to_correlation_events(events: list[LogEvent]) -> list[CorrelationLogEvent]:
     converted: list[CorrelationLogEvent] = []
     for item in events:
@@ -372,6 +397,7 @@ def run_llm_pipeline(
     region: str = "",
     chunk_size: int,
     chunk_strategy: str = "adaptive",
+    source_agent_findings: str = "",
     temperature: float,
     timeout_seconds: int,
     max_retries: int,
@@ -407,6 +433,7 @@ def run_llm_pipeline(
                 chunk_id=chunk_id,
                 entries=chunk,
                 seed=chunk_seed,
+                source_agent_findings=source_agent_findings,
                 extra_user_suffix=retrieval_suffix,
             )
         )
@@ -557,6 +584,9 @@ def run(
             "reason": f"{provider_hint} is not configured",
         }
     elif not skip_llm:
+        source_agent_findings = format_source_agent_findings(
+            report.get("source_agents", {}).get("findings", [])
+        )
         report["llm_analysis"] = run_llm_pipeline(
             events=events,
             provider=provider,
@@ -565,6 +595,7 @@ def run(
             region=region,
             chunk_size=chunk_size,
             chunk_strategy=chunk_strategy,
+            source_agent_findings=source_agent_findings,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
