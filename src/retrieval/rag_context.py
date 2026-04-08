@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ NORMALIZED_DIR = REPO_ROOT / "normalized"
 OUTPUT_METADATA = NORMALIZED_DIR / "retrieval_metadata.jsonl"
 OUTPUT_EMBEDDINGS = NORMALIZED_DIR / "message_embeddings.npy"
 OUTPUT_FAISS = NORMALIZED_DIR / "faiss.index"
+TOKEN_RE = re.compile(r"[a-z0-9_./:-]+")
 
 
 class RetrievalContext:
@@ -26,6 +28,25 @@ class RetrievalContext:
         self.embeddings = embeddings
         self.index = index
         self.line_id_to_row = line_id_to_row
+        self._row_token_sets: list[set[str]] = []
+        self._query_cache: dict[tuple[int, ...], np.ndarray] = {}
+        self._build_row_token_sets()
+
+    def _build_row_token_sets(self) -> None:
+        for item in self.metadata:
+            terms = item.get("retrieval_terms")
+            if isinstance(terms, list):
+                token_set = {str(t).strip().lower() for t in terms if str(t).strip()}
+            else:
+                merged = " ".join(
+                    [
+                        str(item.get("message") or ""),
+                        str(item.get("event_template") or ""),
+                        str(item.get("component") or ""),
+                    ]
+                ).lower()
+                token_set = set(TOKEN_RE.findall(merged))
+            self._row_token_sets.append(token_set)
 
     @classmethod
     def load(cls) -> "RetrievalContext | None":
@@ -97,17 +118,29 @@ class RetrievalContext:
         if not chunk_rows:
             return ""
 
-        query = np.mean(self.embeddings[chunk_rows], axis=0, dtype=np.float32).reshape(1, -1)
+        cache_key = tuple(sorted(set(chunk_rows)))
+        cached_query = self._query_cache.get(cache_key)
+        if cached_query is None:
+            query = np.mean(self.embeddings[list(cache_key)], axis=0, dtype=np.float32).reshape(
+                1, -1
+            )
+            self._query_cache[cache_key] = query
+        else:
+            query = cached_query.copy()
         norm = float(np.linalg.norm(query))
         if norm <= 0.0:
             return ""
         query /= norm
-        neighbor_count = min(len(self.metadata), top_k + len(set(chunk_rows)))
-        _, indices = self.index.search(query, neighbor_count)
+        chunk_tokens: set[str] = set()
+        for row in set(chunk_rows):
+            chunk_tokens.update(self._row_token_sets[row])
+
+        neighbor_count = min(len(self.metadata), max(top_k * 5, top_k + len(set(chunk_rows))))
+        scores, indices = self.index.search(query, neighbor_count)
         chunk_row_set = set(chunk_rows)
-        lines: list[str] = []
+        ranked: list[tuple[float, int, dict[str, Any]]] = []
         seen_rows: set[int] = set()
-        for row in indices[0]:
+        for score_raw, row in zip(scores[0], indices[0]):
             row_index = int(row)
             if row_index < 0 or row_index in seen_rows or row_index in chunk_row_set:
                 continue
@@ -122,12 +155,39 @@ class RetrievalContext:
             message = str(item.get("message", "")).strip()
             if not message:
                 continue
+            lexical_overlap = 0.0
+            row_tokens = self._row_token_sets[row_index]
+            if chunk_tokens and row_tokens:
+                lexical_overlap = len(chunk_tokens.intersection(row_tokens)) / max(
+                    1, len(chunk_tokens)
+                )
+            semantic_score = float(score_raw)
+            blended = 0.82 * semantic_score + 0.18 * lexical_overlap
+            ranked.append((blended, row_index, item))
+
+        if not ranked:
+            return ""
+        ranked.sort(key=lambda entry: entry[0], reverse=True)
+
+        lines: list[str] = []
+        used_datasets: dict[str, int] = {}
+        for blended, _, item in ranked:
+            dataset = str(item.get("dataset", "")).strip()
+            if dataset and used_datasets.get(dataset, 0) >= 2:
+                continue
+            timestamp = str(item.get("timestamp_iso", "")).strip()
+            component = str(item.get("component", "") or "").strip()
+            message = str(item.get("message", "")).strip()
+            if not message:
+                continue
             lines.append(
-                f"- dataset={dataset} timestamp={timestamp} component={component} message={message}"
+                f"- score={blended:.4f} dataset={dataset} timestamp={timestamp} component={component} message={message}"
             )
+            if dataset:
+                used_datasets[dataset] = used_datasets.get(dataset, 0) + 1
             if len(lines) >= top_k:
                 break
 
         if not lines:
             return ""
-        return "Related lines (semantic retrieval):\n" + "\n".join(lines)
+        return "Related lines (hybrid semantic+lexical retrieval):\n" + "\n".join(lines)

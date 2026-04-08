@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ METADATA_KEYS: tuple[str, ...] = (
 )
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+TOKEN_RE = re.compile(r"[a-z0-9_./:-]+")
 
 
 # -----------------------------------------------------------------------------
@@ -54,6 +56,11 @@ def build_metadata(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     metadata: list[dict[str, Any]] = []
     for rec in logs:
         meta = {k: rec.get(k) for k in METADATA_KEYS}
+        msg = str(meta.get("message") or "").lower()
+        template = str(meta.get("event_template") or "").lower()
+        comp = str(meta.get("component") or "").lower()
+        merged = f"{msg} {template} {comp}".strip()
+        meta["retrieval_terms"] = sorted(set(TOKEN_RE.findall(merged)))
         metadata.append(meta)
     logging.getLogger(__name__).info("Built metadata for %d logs", len(metadata))
     return metadata

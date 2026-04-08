@@ -13,8 +13,10 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
    - the bundled demo fixture at `examples/demo_unified_logs.jsonl`
 2. Convert logs into canonical `LogEvent` objects.
 3. Run source-specific rule-based agents:
-   - auth agent
-   - OpenStack VM agent
+   - auth agent (OpenSSH/Linux authentication activity)
+   - OpenStack VM agent (VM lifecycle anomalies)
+   - Linux system agent (kernel/resource/storage runtime failures)
+   - Apache access agent (HTTP error and suspicious path access patterns)
 4. Run deterministic correlation over the canonical events.
 5. Optionally run LLM-based chunk analysis and cross-chunk correlation through **Amazon Bedrock**.
 6. Write a combined report to `reports/report.json` by default.
@@ -25,6 +27,8 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
 - `src/ingestion/ingest_logs.py`: normalize structured CSV datasets into unified JSONL
 - `src/agents/auth_agent.py`: auth anomaly detection
 - `src/agents/openstack_vm_agent.py`: OpenStack VM anomaly detection
+- `src/agents/linux_system_agent.py`: Linux system anomaly detection
+- `src/agents/apache_access_agent.py`: Apache access anomaly detection
 - `src/agents/correlation/correlation_agent.py`: deterministic event correlation
 - `src/agents/log_analyzer.py`: LLM-driven chunk analysis and correlation
 - `examples/demo_unified_logs.jsonl`: bundled demo input when no real data is present
