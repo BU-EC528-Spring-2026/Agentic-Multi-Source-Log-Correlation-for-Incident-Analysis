@@ -10,15 +10,15 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              INPUT SOURCES                                       │
+│                              INPUT SOURCES                                      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
-│  normalized/unified_logs.jsonl  │  LogHub CSVs  │  Raw log file  │  Demo fixture │
+│      normalized/unified_logs.jsonl  │  LogHub CSVs  │  Raw log file             │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           LOGEVENT NORMALIZATION                                 │
-│         (Canonical representation: timestamp, source, message, metadata)       │
+│                           LOG EVENT NORMALIZATION                               │
+│         (Canonical logging: timestamp, source, message, metadata)               │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
         ┌─────────────────────────────┼─────────────────────────────┐
@@ -38,22 +38,22 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
 │               │          │                  │          │ │ Linux-scoped     │ │
 │               │          │ HIGH/MEDIUM      │          │ │ Apache-scoped    │ │
 │               │          │ findings         │          │ └──────────────────┘ │
-└───────┬───────┘          └─────────┬──────────┘          └──────────┬───────────┘
+└───────┬───────┘          └─────────┬────────┘          └──────────┬───────────┘
         │                            │                              │
         └────────────────────────────┼──────────────────────────────┘
                                      │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    LLM CORRELATION & SYNTHESIS                                     │
+│                    LLM CORRELATION & SYNTHESIS                                  │
 │  Synthesizes: chunk analyses + source-scoped analyses + rule-based findings     │
-│  Outputs: structured hypotheses with confidence, evidence, alternatives,       │
+│  Outputs: structured hypotheses with confidence, evidence, alternatives,        │
 │           counterevidence, and falsifiability criteria                          │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         REPORT GENERATION                                        │
-│              reports/report.json (or specified output path)                     │
+│                         REPORT GENERATION                                       │
+│                        reports/report.json                                      |
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -75,7 +75,7 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
    - Chunk analyses run in parallel (up to 4 concurrent LLM calls).
    - Four source-scoped LLM passes (auth, openstack, linux, apache) run in parallel alongside chunks.
    - A single correlation pass synthesizes all chunk + source-scoped + rule-based findings into structured hypotheses with cross-source evidence, benign alternatives, counterevidence, and falsifiability criteria.
-6. **Write a combined report** to `reports/report.json` by default.
+6. Generated analysis report can be found in `reports/report.json`.
 
 ## Project Layout
 
