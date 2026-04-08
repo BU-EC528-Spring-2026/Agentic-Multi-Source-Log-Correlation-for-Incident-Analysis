@@ -2,7 +2,10 @@ from src.agents.log_analyzer import ReasoningAgent
 from src.core.log_event import LogEvent
 
 AUTH_SOURCE_KEYS = frozenset({"openssh"})
-INFRA_SOURCE_KEYS = frozenset({"openstack", "linux", "apache"})
+OPENSTACK_SOURCE_KEYS = frozenset({"openstack"})
+LINUX_SOURCE_KEYS = frozenset({"linux"})
+APACHE_SOURCE_KEYS = frozenset({"apache"})
+INFRA_SOURCE_KEYS = OPENSTACK_SOURCE_KEYS | LINUX_SOURCE_KEYS | APACHE_SOURCE_KEYS
 
 
 def source_label_for_filter(raw: str) -> str:
@@ -56,16 +59,18 @@ def empty_chunk_analysis(summary: str, chunk_id: int = 1) -> dict:
     }
 
 
-def analyze_auth_events(
+def analyze_source_events(
     agent: ReasoningAgent,
     events: list[LogEvent],
+    sources: frozenset[str],
+    label: str,
     *,
     chunk_id: int = 1,
     seed: int | None = None,
 ) -> list[dict]:
-    runs = contiguous_runs_for_sources(events, AUTH_SOURCE_KEYS)
+    runs = contiguous_runs_for_sources(events, sources)
     if not runs:
-        return [empty_chunk_analysis("No auth-source events in input.", chunk_id=chunk_id)]
+        return [empty_chunk_analysis(f"No {label} events in input.", chunk_id=chunk_id)]
     results = []
     for offset, run in enumerate(runs):
         results.append(
@@ -76,6 +81,58 @@ def analyze_auth_events(
             )
         )
     return results
+
+
+def analyze_auth_events(
+    agent: ReasoningAgent,
+    events: list[LogEvent],
+    *,
+    chunk_id: int = 1,
+    seed: int | None = None,
+) -> list[dict]:
+    return analyze_source_events(
+        agent, events, AUTH_SOURCE_KEYS, "auth-source",
+        chunk_id=chunk_id, seed=seed,
+    )
+
+
+def analyze_openstack_events(
+    agent: ReasoningAgent,
+    events: list[LogEvent],
+    *,
+    chunk_id: int = 1,
+    seed: int | None = None,
+) -> list[dict]:
+    return analyze_source_events(
+        agent, events, OPENSTACK_SOURCE_KEYS, "openstack",
+        chunk_id=chunk_id, seed=seed,
+    )
+
+
+def analyze_linux_events(
+    agent: ReasoningAgent,
+    events: list[LogEvent],
+    *,
+    chunk_id: int = 1,
+    seed: int | None = None,
+) -> list[dict]:
+    return analyze_source_events(
+        agent, events, LINUX_SOURCE_KEYS, "linux",
+        chunk_id=chunk_id, seed=seed,
+    )
+
+
+def analyze_apache_events(
+    agent: ReasoningAgent,
+    events: list[LogEvent],
+    *,
+    chunk_id: int = 1,
+    seed: int | None = None,
+) -> list[dict]:
+    return analyze_source_events(
+        agent, events, APACHE_SOURCE_KEYS, "apache",
+        chunk_id=chunk_id, seed=seed,
+    )
 
 
 def analyze_infra_events(
@@ -85,21 +142,7 @@ def analyze_infra_events(
     chunk_id: int = 2,
     seed: int | None = None,
 ) -> list[dict]:
-    runs = contiguous_runs_for_sources(events, INFRA_SOURCE_KEYS)
-    if not runs:
-        return [
-            empty_chunk_analysis(
-                "No infrastructure-source events in input.",
-                chunk_id=chunk_id,
-            )
-        ]
-    results = []
-    for offset, run in enumerate(runs):
-        results.append(
-            agent.analyze_chunk(
-                chunk_id=chunk_id + offset,
-                entries=run,
-                seed=None if seed is None else seed + offset,
-            )
-        )
-    return results
+    return analyze_source_events(
+        agent, events, INFRA_SOURCE_KEYS, "infrastructure-source",
+        chunk_id=chunk_id, seed=seed,
+    )
