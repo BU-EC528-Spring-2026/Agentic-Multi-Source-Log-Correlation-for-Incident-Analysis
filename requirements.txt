@@ -1,8 +1,8 @@
-<<<<<<< HEAD
+
 requests>=2.31.0
 python-dotenv>=1.0.0
 pytest>=8.0.0
-=======
+
 pandas
 numpy
 sentence-transformers
@@ -14,4 +14,4 @@ groq>=0.13.0
 python-dateutil>=2.8.2
 pytest>=8.0.0
 rich>=13.7.0
->>>>>>> main
+
