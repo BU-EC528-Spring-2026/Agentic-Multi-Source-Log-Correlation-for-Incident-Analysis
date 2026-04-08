@@ -32,6 +32,8 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
 - `src/agents/correlation/correlation_agent.py`: deterministic event correlation
 - `src/agents/log_analyzer.py`: LLM-driven chunk analysis and correlation
 - `examples/demo_unified_logs.jsonl`: bundled demo input when no real data is present
+- `evaluation/synthetic_eval_rubric.md`: scoring rubric for synthetic dataset runs
+- `evaluation/synthetic_eval_runs.csv`: recorded synthetic evaluation results
 - `reports/`: generated reports and sample artifacts
 
 ## Requirements
@@ -88,6 +90,8 @@ python -m src.main --provider bedrock --output-file reports/sonnet_report.json
 It took Claude Sonnet-4.6 around **15–20 minutes** to generate an analysis report for 8000 structured events. 
 
 `llm_analysis.meta` and `llm_analysis.inference` sections record model id and timing.
+
+For the synthetic evaluation dataset, a sample run report is included at `reports/gpt54_synth_report.json`.
 
 Equivalent using Make (writes default `reports/report.json` unless you override the command):
 
@@ -172,6 +176,17 @@ Default output file:
 ```text
 reports/report.json
 ```
+
+## Synthetic Data And Rubric
+
+The repo also includes synthetic evaluation artifacts for repeatable scoring:
+
+- `data/synthetic_logs/`: synthetic multi-source log datasets used for evaluation
+- `reports/gpt54_synth_report.json`: sample report generated from `data/synthetic_logs/GPT5.4_synthetic_logs.jsonl`
+- `evaluation/synthetic_eval_rubric.md`: rubric for scoring seeded scenarios and report quality
+- `evaluation/synthetic_eval_runs.csv`: logged evaluation scores and notes from completed runs
+
+Use the rubric to score scenario detection, correlation quality, factual correctness, coverage, false-positive control, and actionability on synthetic runs.
 
 ## Testing
 
