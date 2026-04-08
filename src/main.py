@@ -2,6 +2,7 @@ import argparse
 import json
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -419,8 +420,9 @@ def run_llm_pipeline(
     )
     agent = ReasoningAgent(llm)
 
-    chunk_analyses = []
-    for chunk_id, chunk in enumerate(chunks, start=1):
+    LLM_CONCURRENCY = 4
+
+    def _analyze_one_chunk(chunk_id: int, chunk: list[LogEvent]) -> tuple[int, dict]:
         chunk_seed = None if seed is None else seed + chunk_id
         retrieval_suffix = ""
         if retrieval_context is not None:
@@ -428,30 +430,46 @@ def run_llm_pipeline(
                 chunk,
                 top_k=RETRIEVAL_TOP_K,
             )
-        chunk_analyses.append(
-            agent.analyze_chunk(
-                chunk_id=chunk_id,
-                entries=chunk,
-                seed=chunk_seed,
-                source_agent_findings=source_agent_findings,
-                extra_user_suffix=retrieval_suffix,
-            )
+        result = agent.analyze_chunk(
+            chunk_id=chunk_id,
+            entries=chunk,
+            seed=chunk_seed,
+            source_agent_findings=source_agent_findings,
+            extra_user_suffix=retrieval_suffix,
+        )
+        return chunk_id, result
+
+    num_chunks = len(chunks)
+    with ThreadPoolExecutor(max_workers=LLM_CONCURRENCY) as pool:
+        chunk_futures = {
+            pool.submit(_analyze_one_chunk, cid, chunk): cid
+            for cid, chunk in enumerate(chunks, start=1)
+        }
+        auth_future = pool.submit(
+            analyze_auth_events,
+            agent,
+            events,
+            chunk_id=max(1000, num_chunks + 1),
+            seed=None if seed is None else seed + 1000,
+        )
+        infra_future = pool.submit(
+            analyze_infra_events,
+            agent,
+            events,
+            chunk_id=max(2000, num_chunks + 1001),
+            seed=None if seed is None else seed + 2000,
         )
 
-    source_scoped = {
-        "auth": analyze_auth_events(
-            agent,
-            events,
-            chunk_id=max(1000, len(chunk_analyses) + 1),
-            seed=None if seed is None else seed + 1000,
-        ),
-        "infra": analyze_infra_events(
-            agent,
-            events,
-            chunk_id=max(2000, len(chunk_analyses) + 1001),
-            seed=None if seed is None else seed + 2000,
-        ),
-    }
+        chunk_results: dict[int, dict] = {}
+        for future in as_completed(chunk_futures):
+            cid = chunk_futures[future]
+            chunk_results[cid] = future.result()[1]
+        chunk_analyses = [chunk_results[cid] for cid in sorted(chunk_results)]
+
+        source_scoped = {
+            "auth": auth_future.result(),
+            "infra": infra_future.result(),
+        }
 
     correlation = agent.correlate(chunk_analyses=chunk_analyses, seed=seed)
 
