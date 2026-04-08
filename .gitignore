@@ -5,9 +5,7 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .env
-<<<<<<< HEAD
 tests/
-=======
 # Python cache
 __pycache__/
 *.pyc
@@ -59,4 +57,3 @@ Thumbs.db
 *.bak
 
 normalized/
->>>>>>> main
