@@ -100,6 +100,7 @@ class RetrievalContext:
         entries: list[LogEvent],
         *,
         top_k: int,
+        allowed_ids: set[str] | None = None,
     ) -> str:
         if top_k <= 0:
             return ""
@@ -148,6 +149,8 @@ class RetrievalContext:
             item = self.metadata[row_index]
             line_id = str(item.get("line_id", "")).strip()
             if line_id and line_id in chunk_line_ids:
+                continue
+            if allowed_ids is not None and (not line_id or line_id not in allowed_ids):
                 continue
             dataset = str(item.get("dataset", "")).strip()
             timestamp = str(item.get("timestamp_iso", "")).strip()

@@ -66,7 +66,7 @@ DEMO_NORMALIZED_LOG_FILE = (
 DEFAULT_RAW_LOG_FILE = str(DATA_ROOT / "Mac" / "Mac_2k.log")
 
 
-def next_versioned_output_path(stem: str) -> Path:
+def analysis_report_versioning(stem: str) -> Path:
     path = Path(stem)
     base = path.stem if path.suffix.lower() == ".json" else path.name
     parent = path.parent
@@ -136,7 +136,7 @@ def prepare_pipeline_inputs(
     max_lines: int,
     drop_low_signal: bool,
     ingest_if_needed: bool,
-) -> tuple[list[LogEvent], dict[str, Any]]:
+) -> tuple[list[LogEvent], dict[str, Any], list[dict[str, Any]] | None]:
     normalized_path = Path(normalized_log_file)
     raw_path = Path(log_file) if log_file else None
 
@@ -154,7 +154,7 @@ def prepare_pipeline_inputs(
             "event_count": len(events),
             "rejected_record_count": len(rejected),
             "rejected_examples": rejected[:20],
-        }
+        }, records
 
     if ingest_if_needed:
         missing = available_dataset_paths()
@@ -173,7 +173,7 @@ def prepare_pipeline_inputs(
                 "rejected_record_count": len(rejected),
                 "rejected_examples": rejected[:20],
                 "ingestion_summary": ingestion_summary,
-            }
+            }, records
 
     if raw_path and raw_path.exists():
         raw_lines = load_log_file(str(raw_path), max_lines=max_lines)
@@ -201,7 +201,7 @@ def prepare_pipeline_inputs(
                 "skip_rate": round(len(skipped_lines) / max(1, len(raw_lines)), 4),
                 "skipped_examples": skipped_lines[:20],
             },
-        }
+        }, None
 
     if DEMO_NORMALIZED_LOG_FILE.exists():
         missing_datasets = available_dataset_paths()
@@ -229,7 +229,7 @@ def prepare_pipeline_inputs(
                 "No user-provided datasets or raw logs were found, so the pipeline "
                 "fell back to the bundled demo fixture."
             ),
-        }
+        }, records
 
     missing_datasets = available_dataset_paths()
     raise RuntimeError(
@@ -433,6 +433,13 @@ def run_llm_pipeline(
     else:
         chunks = chunk_logs(events, chunk_size=chunk_size)
     retrieval_context = RetrievalContext.load() if RETRIEVAL_CONTEXT else None
+    allowed_ids: set[str] | None = None
+    if retrieval_context is not None:
+        allowed_ids = {
+            str(e.raw_metadata.get("line_id", "")).strip() for e in events
+        } - {""}
+        if not allowed_ids:
+            allowed_ids = None
     llm = create_client(
         provider=provider,
         models=models,
@@ -453,6 +460,7 @@ def run_llm_pipeline(
             retrieval_suffix = retrieval_context.build_chunk_suffix(
                 chunk,
                 top_k=RETRIEVAL_TOP_K,
+                allowed_ids=allowed_ids,
             )
         result = agent.analyze_chunk(
             chunk_id=chunk_id,
@@ -555,7 +563,7 @@ def run(
     provider_ready: bool | None = None,
     provider_hint: str | None = None,
 ) -> dict[str, Any]:
-    events, input_meta = prepare_pipeline_inputs(
+    events, input_meta, normalized_records = prepare_pipeline_inputs(
         log_file=log_file,
         normalized_log_file=normalized_log_file,
         max_lines=max_lines,
@@ -574,14 +582,8 @@ def run(
         "rule_based_correlation": build_rule_correlation_summary(events),
     }
 
-    if input_meta.get("input_mode") in {
-        "normalized_jsonl",
-        "ingested_datasets",
-        "bundled_demo",
-    }:
-        normalized_path = Path(str(input_meta["input_path"]))
-        normalized_logs = load_normalized_records(normalized_path)
-        source_agent_results = run_source_agents(normalized_logs)
+    if normalized_records is not None:
+        source_agent_results = run_source_agents(normalized_records)
         report["source_agents"] = {
             "summary": summarize_source_agent_results(source_agent_results),
             "findings": source_agent_results,
@@ -760,7 +762,7 @@ if __name__ == "__main__":
             chunk_size = GROQ_CHUNK_SIZE if provider == "groq" else DEFAULT_CHUNK_SIZE
 
         output_file = (
-            str(next_versioned_output_path(args.output_stem))
+            str(analysis_report_versioning(args.output_stem))
             if args.output_stem
             else args.output_file
         )
