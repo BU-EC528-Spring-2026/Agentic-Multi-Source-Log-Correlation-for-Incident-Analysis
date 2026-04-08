@@ -6,23 +6,76 @@ This EC528 project explores how agentic workflows can analyze heterogeneous logs
 
 The current implementation supports an integrated pipeline in [src/main.py](src/main.py):
 
-1. Load input from one of these sources, in order:
+### Pipeline Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              INPUT SOURCES                                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│  normalized/unified_logs.jsonl  │  LogHub CSVs  │  Raw log file  │  Demo fixture │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           LOGEVENT NORMALIZATION                                 │
+│         (Canonical representation: timestamp, source, message, metadata)       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        │                             │                             │
+        ▼                             ▼                             ▼
+┌───────────────┐          ┌──────────────────┐          ┌──────────────────────┐
+│  DETERMINISTIC│          │  RULE-BASED      │          │  LLM-BASED ANALYSIS  │
+│  CORRELATION  │          │  SOURCE AGENTS   │          │  (Parallel Lanes)    │
+│  (msg_sim)    │          │                  │          │                      │
+│               │          │ • Auth Agent     │          │ ┌──────────────────┐ │
+│               │          │ • OpenStack      │          │ │ Temporal Chunks  │ │
+│               │          │   VM Agent       │          │ │ (base analysis)  │ │
+│               │          │ • Linux System   │          │ └──────────────────┘ │
+│               │          │   Agent          │          │ ┌──────────────────┐ │
+│               │          │ • Apache Access  │          │ │ Auth-scoped      │ │
+│               │          │   Agent          │          │ │ OpenStack-scoped │ │
+│               │          │                  │          │ │ Linux-scoped     │ │
+│               │          │ HIGH/MEDIUM      │          │ │ Apache-scoped    │ │
+│               │          │ findings         │          │ └──────────────────┘ │
+└───────┬───────┘          └─────────┬──────────┘          └──────────┬───────────┘
+        │                            │                              │
+        └────────────────────────────┼──────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                    LLM CORRELATION & SYNTHESIS                                     │
+│  Synthesizes: chunk analyses + source-scoped analyses + rule-based findings     │
+│  Outputs: structured hypotheses with confidence, evidence, alternatives,       │
+│           counterevidence, and falsifiability criteria                          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         REPORT GENERATION                                        │
+│              reports/report.json (or specified output path)                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Processing Steps
+
+1. **Load input** from one of these sources, in order:
    - `normalized/unified_logs.jsonl`
    - structured LogHub CSV datasets under `data/` or `LOG_DATA_ROOT`
    - a raw log file passed through `--log-file`
    - the bundled demo fixture at `examples/demo_unified_logs.jsonl`
-2. Convert logs into canonical `LogEvent` objects.
-3. Run source-specific rule-based agents:
+2. **Convert logs** into canonical `LogEvent` objects.
+3. **Run source-specific rule-based agents**:
    - auth agent (OpenSSH/Linux authentication activity)
    - OpenStack VM agent (VM lifecycle anomalies)
    - Linux system agent (kernel/resource/storage runtime failures)
    - Apache access agent (HTTP error and suspicious path access patterns)
-4. Run deterministic correlation over the canonical events.
-5. Optionally run LLM-based analysis through **Amazon Bedrock** (or Groq / OpenRouter):
+4. **Run deterministic correlation** over the canonical events.
+5. **Optionally run LLM-based analysis** through **Amazon Bedrock** (or Groq / OpenRouter):
    - Chunk analyses run in parallel (up to 4 concurrent LLM calls).
    - Four source-scoped LLM passes (auth, openstack, linux, apache) run in parallel alongside chunks.
    - A single correlation pass synthesizes all chunk + source-scoped + rule-based findings into structured hypotheses with cross-source evidence, benign alternatives, counterevidence, and falsifiability criteria.
-6. Write a combined report to `reports/report.json` by default.
+6. **Write a combined report** to `reports/report.json` by default.
 
 ## Project Layout
 
@@ -81,15 +134,21 @@ Ingest, build the retrieval index, then run Bedrock-backed `main` (same sequence
 From the **repository root**, with the venv activated:
 
 1. **Data** — Place the structured CSVs under `data/` as described in [Using Real LogHub Data](#using-real-loghub-data), or point at your tree with `LOG_DATA_ROOT`. If `normalized/unified_logs.jsonl` is already present, ingest is optional.
-2. **Ingest** — `make ingest` (or `LOG_DATA_ROOT=... make ingest` if your CSVs are not under the default root). On Windows without `make`, set `LOG_DATA_ROOT` first if needed, then `python -m src.ingestion.ingest_logs`.
-3. **Retrieval index** — `make retrieval` (needed for the same retrieval-augmented chunk context as the sample report).
+2. **Ingest** — `make ingest` (or `LOG_DATA_ROOT=... make ingest` if your CSVs are not under the default root). Without `make`, set `LOG_DATA_ROOT` once per shell before ingest and retrieval when you use the same layout as the [Makefile](Makefile) (`data/loghub`), e.g.:
+
+```bash
+export LOG_DATA_ROOT=data/loghub
+```
+
+On Windows use `set LOG_DATA_ROOT=data\loghub` (cmd) or `$env:LOG_DATA_ROOT="data\loghub"` (PowerShell). For a custom root, use `export LOG_DATA_ROOT=/absolute/path/to/loghub` (see [Using Real LogHub Data](#using-real-loghub-data)). If CSVs live under `data/OpenStack`, … you can omit this. Then run `python -m src.ingestion.ingest_logs`.
+3. **Retrieval index** — `make retrieval` (needed for the same retrieval-augmented chunk context as the sample report). Without `make`, use the same `LOG_DATA_ROOT` as ingest if you set it, then `python -m src.retrieval.build_retrieval_index`.
 4. **Pipeline** —
 
 ```bash
 python -m src.main --provider bedrock --output-file reports/sonnet_report.json
 ```
 
-With parallelized LLM calls (4 concurrent), Claude Sonnet-4.6 takes around **8–12 minutes** for 8000 structured events (down from ~20 min sequential). 
+It took Claude Sonnet-4.6 around **15–20 minutes** to generate an analysis report for 8000 structured events. 
 
 `llm_analysis.meta` and `llm_analysis.inference` sections record model id and timing.
 
@@ -217,7 +276,7 @@ Available targets:
 
 - The bundled demo input is static, but the report is still generated by the real pipeline code.
 - LLM mode with Bedrock requires valid AWS credentials, a region, and a `BEDROCK_MODEL_ID` (or equivalent) the account is allowed to invoke.
-- The retrieval module lives in `src/retrieval/`; `make retrieval` should be run before a full Bedrock run if you want retrieval context in chunk analysis.
+- The retrieval module lives in `src/retrieval/`; run `make retrieval` or `python -m src.retrieval.build_retrieval_index` before a full Bedrock run if you want retrieval context in chunk analysis (match `LOG_DATA_ROOT` to ingest when you use a custom data root).
 - `LOG_MAX_LINES` (env var) or `--max-lines` (CLI) controls the input cap. Default is **8000**. Retrieval results are automatically filtered to the capped event slice.
 
 ## Demo Presentations
