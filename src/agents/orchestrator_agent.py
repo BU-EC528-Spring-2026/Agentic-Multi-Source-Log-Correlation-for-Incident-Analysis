@@ -1,17 +1,30 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from src.agents.apache_access_agent import run_agent as run_apache_access_agent
 from src.agents.auth_agent import run_agent as run_auth_agent
+from src.agents.linux_system_agent import run_agent as run_linux_system_agent
 from src.agents.openstack_vm_agent import run_agent as run_openstack_vm_agent
 from src.common import load_logs
 
 
+SOURCE_AGENT_REGISTRY: tuple[tuple[str, Any], ...] = (
+    ("auth_agent", run_auth_agent),
+    ("openstack_vm_agent", run_openstack_vm_agent),
+    ("linux_system_agent", run_linux_system_agent),
+    ("apache_access_agent", run_apache_access_agent),
+)
+
+
 def run_source_agents(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    auth_incidents = run_auth_agent(logs)
-    openstack_incidents = run_openstack_vm_agent(logs)
-    return auth_incidents + openstack_incidents
+    findings: list[dict[str, Any]] = []
+    for _, runner in SOURCE_AGENT_REGISTRY:
+        findings.extend(runner(logs))
+    return findings
 
 
 class OrchestratorAgent:
@@ -43,7 +56,7 @@ class OrchestratorAgent:
         self.logger.info(
             "Collected %d incidents across %d source agents",
             len(self.incidents),
-            2,
+            len(SOURCE_AGENT_REGISTRY),
         )
 
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
