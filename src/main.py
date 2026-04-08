@@ -66,6 +66,18 @@ DEMO_NORMALIZED_LOG_FILE = (
 DEFAULT_RAW_LOG_FILE = str(DATA_ROOT / "Mac" / "Mac_2k.log")
 
 
+def next_versioned_output_path(stem: str) -> Path:
+    path = Path(stem)
+    base = path.stem if path.suffix.lower() == ".json" else path.name
+    parent = path.parent
+    n = 1
+    while True:
+        candidate = parent / f"{base}_{n}.json"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def load_log_file(path: str, max_lines: int) -> list[str]:
     p = Path(path)
     if not p.exists():
@@ -654,6 +666,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--normalized-log-file", default=str(OUTPUT_JSONL))
     parser.add_argument("--output-file", default="reports/report.json")
     parser.add_argument(
+        "--output-stem",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write to PATH_1.json, PATH_2.json, ... (first unused). "
+            "Overrides --output-file. PATH may end with .json (base name is stripped)."
+        ),
+    )
+    parser.add_argument(
         "--provider",
         default=DEFAULT_PROVIDER,
         choices=["bedrock", "groq", "openrouter"],
@@ -738,10 +759,16 @@ if __name__ == "__main__":
         if chunk_size is None:
             chunk_size = GROQ_CHUNK_SIZE if provider == "groq" else DEFAULT_CHUNK_SIZE
 
+        output_file = (
+            str(next_versioned_output_path(args.output_stem))
+            if args.output_stem
+            else args.output_file
+        )
+
         result = run(
             log_file=args.log_file,
             normalized_log_file=args.normalized_log_file,
-            output_file=args.output_file,
+            output_file=output_file,
             provider=provider,
             models=cli_models,
             api_key=api_key,
@@ -760,7 +787,7 @@ if __name__ == "__main__":
             provider_ready=provider_ready,
             provider_hint=provider_hint,
         )
-        print(f"Wrote report: {args.output_file}")
+        print(f"Wrote report: {output_file}")
         print(f"Provider: {provider} | Model: {model}")
         print(f"Input mode: {result['meta']['input_mode']}")
         print(f"Events analyzed: {result['meta']['event_count']}")
