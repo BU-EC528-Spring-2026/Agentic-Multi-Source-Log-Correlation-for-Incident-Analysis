@@ -1,0 +1,850 @@
+{
+  "meta": {
+    "generated_at_utc": "2026-04-08T03:43:01.795243+00:00",
+    "input_mode": "normalized_jsonl",
+    "input_path": "/Users/jshao116/Documents/BU/EC528/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis/data/synthetic_logs/GPT5.4_synthetic_logs.jsonl",
+    "event_count": 30
+  },
+  "input": {
+    "input_mode": "normalized_jsonl",
+    "input_path": "/Users/jshao116/Documents/BU/EC528/Agentic-Multi-Source-Log-Correlation-for-Incident-Analysis/data/synthetic_logs/GPT5.4_synthetic_logs.jsonl",
+    "normalized_record_count": 30,
+    "event_count": 30,
+    "rejected_record_count": 0,
+    "rejected_examples": []
+  },
+  "rule_based_correlation": {
+    "group_count": 1,
+    "top_groups": [
+      {
+        "group_id": "corr_9",
+        "start_time_utc": "2017-05-16T00:02:40+00:00",
+        "end_time_utc": "2017-05-16T00:03:02+00:00",
+        "event_count": 2,
+        "sources": [
+          "openstack"
+        ],
+        "reasons": [
+          "msg_sim(0.88)"
+        ],
+        "event_ids": [
+          "openstack-E25",
+          "openstack-E31"
+        ],
+        "sample_messages": [
+          "10.11.10.3 \"GET /v2/54fadb412c4e40cdbaed9335e4c35a9e/flavors/detail HTTP/1.1\" status: 200 len: 1532 time: 0.228",
+          "10.11.10.21 \"POST /v2/54fadb412c4e40cdbaed9335e4c35a9e/servers/9ab3/action HTTP/1.1\" status: 202 len: 796 time: 0.184"
+        ]
+      }
+    ]
+  },
+  "source_agents": {
+    "summary": {
+      "total_findings": 1,
+      "by_agent": {
+        "auth_agent": 1
+      },
+      "by_category": {
+        "invalid_user_attempt": 1
+      },
+      "by_severity": {
+        "medium": 1
+      }
+    },
+    "findings": [
+      {
+        "agent": "auth_agent",
+        "event_category": "invalid_user_attempt",
+        "severity": "medium",
+        "confidence": 0.85,
+        "actor_key": "173.234.31.186",
+        "start_timestamp": "2017-05-16T00:00:11Z",
+        "end_timestamp": "2017-05-16T00:00:14Z",
+        "evidence_ids": [
+          "3",
+          "4",
+          "5"
+        ],
+        "summary": "invalid_user_attempt: 1 auth failure(s), 1 invalid user(s) in 3 log(s)"
+      }
+    ]
+  },
+  "llm_analysis": {
+    "meta": {
+      "provider": "bedrock",
+      "model": "global.anthropic.claude-sonnet-4-6",
+      "model_candidates": [
+        "global.anthropic.claude-sonnet-4-6"
+      ],
+      "chunk_size": 250,
+      "temperature": 0.3,
+      "seed": null,
+      "chunk_count": 1,
+      "retrieval_context": true,
+      "retrieval_top_k": 8
+    },
+    "overview": {
+      "global_summary": "Only a single chunk (chunk 1, line 1) was provided for analysis. It contains 7 network-category events and zero events in all other categories. No top findings or suspicious events were explicitly surfaced in the chunk analysis, and the chunk summary is a placeholder. The baseline incident view is therefore minimal: there is a concentrated cluster of network-related log entries at the very start of the log file, with no corroborating signals from process lifecycle, system configuration, DNS, security, or any other domain. This makes it impossible to draw high-confidence cross-category correlations at this stage; however, the density of network events on a single line warrants further investigation.",
+      "top_categories": [
+        {
+          "category": "network",
+          "count": 7
+        },
+        {
+          "category": "other",
+          "count": 0
+        },
+        {
+          "category": "process_lifecycle",
+          "count": 0
+        },
+        {
+          "category": "system_configuration",
+          "count": 0
+        }
+      ],
+      "top_correlations": [
+        {
+          "pattern_id": "CORR-001",
+          "type": "temporal_cluster",
+          "confidence": 0.3,
+          "related_categories": [
+            "network"
+          ],
+          "explanation": "All 7 network events appear on the same line/timestamp, suggesting they occurred simultaneously or were batched. Without timestamps or event details, a causal chain cannot be established, but the clustering is notable."
+        },
+        {
+          "pattern_id": "CORR-002",
+          "type": "absence_signal",
+          "confidence": 0.2,
+          "related_categories": [
+            "network",
+            "process_lifecycle",
+            "system_configuration"
+          ],
+          "explanation": "The complete absence of process_lifecycle and system_configuration events alongside network activity may indicate either log truncation or that the network events are externally sourced (no local process spawned them)."
+        }
+      ],
+      "hypotheses": [
+        "H1 \u2013 Network Burst at Log Start: The 7 network events concentrated on line 1 may represent a rapid burst of network activity (e.g., a connection storm, port scan, or link-state flap) occurring at system/service startup. Confidence is low without additional context.",
+        "H2 \u2013 Truncated or Aggregated Log Entry: The single-line, multi-event record may indicate that multiple network events were collapsed or aggregated into one log line by a logger or SIEM, masking individual timestamps and sources. This would explain the absence of spread across lines.",
+        "H3 \u2013 Incomplete Log Capture: The dataset may be a very small excerpt of a larger log. The absence of any process_lifecycle, system_configuration, or other events could simply reflect truncation rather than a genuine absence of those event types.",
+        "H4 \u2013 Isolated Network Anomaly: If the log is complete, the exclusive presence of network events with no accompanying process or configuration changes could indicate an externally-triggered network event (e.g., inbound scan, DDoS probe) rather than an internally-initiated change."
+      ],
+      "timeline_highlights": [
+        "T+0 (Line 1): 7 network events recorded \u2014 this is the only data point in the current dataset. All subsequent timeline entries are unknown pending additional log chunks."
+      ],
+      "recommended_next_queries": [
+        "1. Retrieve the full log file or additional chunks beyond line 1 to determine whether network events continue, escalate, or are followed by process/configuration changes.",
+        "2. Query for the specific network event types within chunk 1 (e.g., TCP SYN, ICMP, interface state change) to distinguish a scan, flap, or connection burst.",
+        "3. Search for associated source/destination IP addresses and ports in the 7 network events to identify internal vs. external origin.",
+        "4. Query process_lifecycle logs (process start/stop/crash) within \u00b160 seconds of the network event timestamp to check for correlated service restarts.",
+        "5. Query DNS/service-discovery logs around the same timestamp to determine whether the network events were preceded by unusual name resolution activity.",
+        "6. Check authz_security logs (firewall, auth failures) at the same timestamp to rule out an intrusion attempt accompanying the network burst.",
+        "7. Verify whether the log aggregation pipeline collapsed multiple lines into line 1, by checking raw source log format and ingestion pipeline configuration."
+      ]
+    },
+    "inference": {
+      "call_count": 13,
+      "total_latency_ms": 282350.6,
+      "calls": [
+        {
+          "latency_ms": 31983.1,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1,
+          "request_id": "c279ff0c-0b8d-4eb6-a31f-9a93983801fa",
+          "provider_latency_ms": 31750,
+          "token_usage": {
+            "input_tokens": 3663,
+            "output_tokens": 198,
+            "total_tokens": 3861
+          }
+        },
+        {
+          "latency_ms": 4418.7,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1000,
+          "request_id": "dea63a2b-0b9f-452a-90fd-e17f36620bdf",
+          "provider_latency_ms": 4374,
+          "token_usage": {
+            "input_tokens": 1455,
+            "output_tokens": 198,
+            "total_tokens": 1653
+          }
+        },
+        {
+          "latency_ms": 33364.3,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1001,
+          "request_id": "eb01aea2-8bc6-4de0-b6c9-2fe8669b3ac0",
+          "provider_latency_ms": 33314,
+          "token_usage": {
+            "input_tokens": 1363,
+            "output_tokens": 336,
+            "total_tokens": 1699
+          }
+        },
+        {
+          "latency_ms": 9017.6,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1002,
+          "request_id": "59f9d103-7ac0-496c-a666-60907bc74ee0",
+          "provider_latency_ms": 8974,
+          "token_usage": {
+            "input_tokens": 1367,
+            "output_tokens": 439,
+            "total_tokens": 1806
+          }
+        },
+        {
+          "latency_ms": 38393.1,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1003,
+          "request_id": "677a31ac-e5bf-4b75-9f45-f5a791fbdba5",
+          "provider_latency_ms": 38332,
+          "token_usage": {
+            "input_tokens": 1367,
+            "output_tokens": 536,
+            "total_tokens": 1903
+          }
+        },
+        {
+          "latency_ms": 10554.0,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 1004,
+          "request_id": "ff305122-e2fe-4a60-a0f0-f6938993f1c1",
+          "provider_latency_ms": 10470,
+          "token_usage": {
+            "input_tokens": 1344,
+            "output_tokens": 491,
+            "total_tokens": 1835
+          }
+        },
+        {
+          "latency_ms": 4089.4,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2000,
+          "request_id": "11cb9c7e-ef06-4722-9053-4636660debd7",
+          "provider_latency_ms": 3956,
+          "token_usage": {
+            "input_tokens": 1424,
+            "output_tokens": 198,
+            "total_tokens": 1622
+          }
+        },
+        {
+          "latency_ms": 5631.6,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2001,
+          "request_id": "970623d3-378b-4581-87e4-64c51e0b5374",
+          "provider_latency_ms": 5575,
+          "token_usage": {
+            "input_tokens": 1512,
+            "output_tokens": 198,
+            "total_tokens": 1710
+          }
+        },
+        {
+          "latency_ms": 4198.2,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2002,
+          "request_id": "9b27bf59-6789-4b8a-a07b-1cd32b197c70",
+          "provider_latency_ms": 4117,
+          "token_usage": {
+            "input_tokens": 1556,
+            "output_tokens": 190,
+            "total_tokens": 1746
+          }
+        },
+        {
+          "latency_ms": 13313.1,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2003,
+          "request_id": "74ec83f6-6a04-4236-8cd2-4cc57cc1f9b5",
+          "provider_latency_ms": 12987,
+          "token_usage": {
+            "input_tokens": 1604,
+            "output_tokens": 791,
+            "total_tokens": 2395
+          }
+        },
+        {
+          "latency_ms": 62872.7,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2004,
+          "request_id": "854deb7d-8f3e-4b4c-8613-fea2771e953f",
+          "provider_latency_ms": 62762,
+          "token_usage": {
+            "input_tokens": 1931,
+            "output_tokens": 1036,
+            "total_tokens": 2967
+          }
+        },
+        {
+          "latency_ms": 11785.9,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "chunk_analysis",
+          "chunk_id": 2005,
+          "request_id": "04d4f53c-9dd1-4b85-af56-efc0185e291f",
+          "provider_latency_ms": 11722,
+          "token_usage": {
+            "input_tokens": 1621,
+            "output_tokens": 671,
+            "total_tokens": 2292
+          }
+        },
+        {
+          "latency_ms": 52728.9,
+          "attempt_count": 1,
+          "model": "global.anthropic.claude-sonnet-4-6",
+          "provider": "bedrock",
+          "stage": "correlation",
+          "request_id": "28fc6904-3807-4867-ba14-931f26f87933",
+          "provider_latency_ms": 52641,
+          "token_usage": {
+            "input_tokens": 1305,
+            "output_tokens": 1101,
+            "total_tokens": 2406
+          }
+        }
+      ],
+      "avg_latency_ms": 21719.3,
+      "token_usage": {
+        "input_tokens": 21512,
+        "output_tokens": 6383,
+        "total_tokens": 27895
+      }
+    },
+    "chunk_overview": [
+      {
+        "chunk_id": 1,
+        "line_range": [
+          1,
+          1
+        ],
+        "summary": "placeholder",
+        "suspicious_event_count": 0,
+        "top_categories": [
+          {
+            "category": "network",
+            "count": 7
+          },
+          {
+            "category": "other",
+            "count": 0
+          },
+          {
+            "category": "process_lifecycle",
+            "count": 0
+          }
+        ]
+      }
+    ],
+    "details": {
+      "category_totals_from_chunks": {
+        "network": 7,
+        "other": 0,
+        "process_lifecycle": 0,
+        "system_configuration": 0
+      },
+      "correlation_report": {
+        "global_summary": "Only a single chunk (chunk 1, line 1) was provided for analysis. It contains 7 network-category events and zero events in all other categories. No top findings or suspicious events were explicitly surfaced in the chunk analysis, and the chunk summary is a placeholder. The baseline incident view is therefore minimal: there is a concentrated cluster of network-related log entries at the very start of the log file, with no corroborating signals from process lifecycle, system configuration, DNS, security, or any other domain. This makes it impossible to draw high-confidence cross-category correlations at this stage; however, the density of network events on a single line warrants further investigation.",
+        "category_totals": {
+          "network": 7,
+          "other": 0,
+          "process_lifecycle": 0,
+          "system_configuration": 0
+        },
+        "key_correlations": [
+          {
+            "pattern_id": "CORR-001",
+            "correlation_type": "temporal_cluster",
+            "confidence": 0.3,
+            "related_categories": [
+              "network"
+            ],
+            "supporting_evidence": [
+              "chunk_id=1 reports 7 network events on line_range [1,1]",
+              "No events present in any other category to dilute or explain the cluster"
+            ],
+            "explanation": "All 7 network events appear on the same line/timestamp, suggesting they occurred simultaneously or were batched. Without timestamps or event details, a causal chain cannot be established, but the clustering is notable."
+          },
+          {
+            "pattern_id": "CORR-002",
+            "correlation_type": "absence_signal",
+            "confidence": 0.2,
+            "related_categories": [
+              "network",
+              "process_lifecycle",
+              "system_configuration"
+            ],
+            "supporting_evidence": [
+              "process_lifecycle count = 0",
+              "system_configuration count = 0",
+              "network count = 7 \u2014 disproportionate ratio"
+            ],
+            "explanation": "The complete absence of process_lifecycle and system_configuration events alongside network activity may indicate either log truncation or that the network events are externally sourced (no local process spawned them)."
+          }
+        ],
+        "hypotheses": [
+          "H1 \u2013 Network Burst at Log Start: The 7 network events concentrated on line 1 may represent a rapid burst of network activity (e.g., a connection storm, port scan, or link-state flap) occurring at system/service startup. Confidence is low without additional context.",
+          "H2 \u2013 Truncated or Aggregated Log Entry: The single-line, multi-event record may indicate that multiple network events were collapsed or aggregated into one log line by a logger or SIEM, masking individual timestamps and sources. This would explain the absence of spread across lines.",
+          "H3 \u2013 Incomplete Log Capture: The dataset may be a very small excerpt of a larger log. The absence of any process_lifecycle, system_configuration, or other events could simply reflect truncation rather than a genuine absence of those event types.",
+          "H4 \u2013 Isolated Network Anomaly: If the log is complete, the exclusive presence of network events with no accompanying process or configuration changes could indicate an externally-triggered network event (e.g., inbound scan, DDoS probe) rather than an internally-initiated change."
+        ],
+        "timeline_highlights": [
+          "T+0 (Line 1): 7 network events recorded \u2014 this is the only data point in the current dataset. All subsequent timeline entries are unknown pending additional log chunks."
+        ],
+        "next_queries": [
+          "1. Retrieve the full log file or additional chunks beyond line 1 to determine whether network events continue, escalate, or are followed by process/configuration changes.",
+          "2. Query for the specific network event types within chunk 1 (e.g., TCP SYN, ICMP, interface state change) to distinguish a scan, flap, or connection burst.",
+          "3. Search for associated source/destination IP addresses and ports in the 7 network events to identify internal vs. external origin.",
+          "4. Query process_lifecycle logs (process start/stop/crash) within \u00b160 seconds of the network event timestamp to check for correlated service restarts.",
+          "5. Query DNS/service-discovery logs around the same timestamp to determine whether the network events were preceded by unusual name resolution activity.",
+          "6. Check authz_security logs (firewall, auth failures) at the same timestamp to rule out an intrusion attempt accompanying the network burst.",
+          "7. Verify whether the log aggregation pipeline collapsed multiple lines into line 1, by checking raw source log format and ingestion pipeline configuration."
+        ]
+      },
+      "chunk_analyses": [
+        {
+          "chunk_id": 1,
+          "line_start": 1,
+          "line_end": 1,
+          "category_counts": {
+            "network": 7,
+            "other": 0,
+            "process_lifecycle": 0,
+            "system_configuration": 0
+          },
+          "top_findings": [],
+          "suspicious_events": [],
+          "summary": "placeholder"
+        }
+      ],
+      "source_scoped_chunk_analyses": {
+        "auth": [
+          {
+            "chunk_id": 1000,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "other": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [],
+            "suspicious_events": [],
+            "summary": "placeholder"
+          },
+          {
+            "chunk_id": 1001,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 1: sshd received disconnect from 192.0.2.51 with code 11 (disconnected by user) at 2017-05-16T00:02:09Z"
+                ]
+              }
+            ],
+            "suspicious_events": [],
+            "summary": "A single SSH session disconnect event was recorded at 2017-05-16T00:02:09Z. The disconnect originated from IP 192.0.2.51 and was initiated cleanly by the user (disconnect code 11: \"disconnected by user\"), indicating a normal, user-initiated SSH session termination with no anomalies detected."
+          },
+          {
+            "chunk_id": 1002,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 1: sshd accepted password auth for 'deploy' from 10.11.10.21 port 54418 \u2014 password login on a service/deploy account is a risk indicator"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 1,
+                "timestamp": "2017-05-16T00:03:05Z",
+                "process": "sshd",
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "rationale": "Successful password-based SSH login for the 'deploy' service account from 10.11.10.21:54418. Use of password authentication (rather than key-based) for a deployment account is a security concern and may indicate credential exposure or policy violation."
+              }
+            ],
+            "summary": "A single SSH login event was recorded in this chunk. The user 'deploy' successfully authenticated via password from internal IP 10.11.10.21 on port 54418. Password-based SSH authentication for a privileged service account (deploy) warrants attention, as key-based authentication is generally preferred for such accounts."
+          },
+          {
+            "chunk_id": 1003,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 1: sshd accepted password login for user 'analyst' from 198.51.100.21:60222 at 00:05:33Z",
+                  "Password authentication used instead of key-based auth",
+                  "Source IP 198.51.100.21 is an RFC 5737 documentation-range address \u2014 unusual in production logs",
+                  "Login occurred at midnight UTC, an off-hours timestamp"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 1,
+                "timestamp": "2017-05-16T00:05:33Z",
+                "process": "sshd",
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "rationale": "Successful SSH password authentication from external IP 198.51.100.21 at midnight UTC (00:05:33Z). Password-based auth is weaker than key-based; off-hours login from an external address increases suspicion. The source IP falls in the RFC 5737 documentation range, which is atypical for legitimate production traffic."
+              }
+            ],
+            "summary": "A single SSH login event was recorded at 2017-05-16T00:05:33Z. User 'analyst' successfully authenticated via password from external IP 198.51.100.21 on port 60222. Password-based SSH authentication from an external IP warrants attention, particularly given the off-hours timestamp (midnight UTC) and the use of a documentation/test-range address (198.51.100.x, RFC 5737)."
+          },
+          {
+            "chunk_id": 1004,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 1,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "network",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 1: sshd reports 'Connection closed by 203.0.113.12' \u2014 external public IP initiating/closing SSH session"
+                ]
+              },
+              {
+                "category": "authz_security",
+                "severity": "LOW",
+                "count": 1,
+                "evidence": [
+                  "Line 1: External IP 203.0.113.12 connected to sshd; connection closure logged \u2014 no authentication outcome visible in this chunk"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 1,
+                "timestamp": "2017-05-16T00:09:14Z",
+                "process": "sshd",
+                "category": "authz_security",
+                "severity": "LOW",
+                "rationale": "SSH connection closed by an external IP address (203.0.113.12). While logged at info severity, external SSH connection attempts/closures from public IPs can indicate reconnaissance or brute-force probing activity and should be correlated with authentication logs."
+              }
+            ],
+            "summary": "A single SSH connection closure event was recorded at 2017-05-16T00:09:14Z. The sshd daemon logged that a connection from external IP 203.0.113.12 was closed. While severity is marked info, the external IP warrants noting for network visibility. No errors, authentication failures, or critical events are present in this chunk."
+          }
+        ],
+        "infra": [
+          {
+            "chunk_id": 2000,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "other": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [],
+            "suspicious_events": [],
+            "summary": "placeholder"
+          },
+          {
+            "chunk_id": 2001,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "other": 0,
+              "process_lifecycle": 1,
+              "system_configuration": 0
+            },
+            "top_findings": [],
+            "suspicious_events": [],
+            "summary": "placeholder"
+          },
+          {
+            "chunk_id": 2002,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 0,
+              "process_lifecycle": 0,
+              "system_configuration": 0
+            },
+            "top_findings": [],
+            "suspicious_events": [],
+            "summary": "placeholder"
+          },
+          {
+            "chunk_id": 2003,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 1,
+              "process_lifecycle": 2,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "process_lifecycle",
+                "severity": "MEDIUM",
+                "count": 2,
+                "evidence": [
+                  "Line 1: CRON executed /usr/local/bin/deploy-check --release blue as user 'deploy' at 00:03:10Z",
+                  "Line 5: su session closed for user 'backup' at 00:04:57Z"
+                ]
+              },
+              {
+                "category": "authz_security",
+                "severity": "HIGH",
+                "count": 1,
+                "evidence": [
+                  "Line 3: sudo session opened for root by deploy(uid=1001) at 00:03:18Z, 4 seconds after a proxy error on /api/deploy"
+                ]
+              },
+              {
+                "category": "application",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 2: proxy_http error reading from remote server for /api/deploy, client 10.11.10.21, at 00:03:14Z"
+                ]
+              },
+              {
+                "category": "network",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 4: Apache served GET /index.html HTTP/1.1 200 to external client 198.51.100.40 at 00:04:21Z"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 2,
+                "timestamp": "2017-05-16T00:03:14Z",
+                "process": "apache/proxy_http",
+                "category": "application",
+                "severity": "MEDIUM",
+                "rationale": "Apache proxy returned an error reading from the remote server for /api/deploy requested by internal client 10.11.10.21, indicating the deployment backend was unreachable or failing at the time of the CRON-triggered deploy-check."
+              },
+              {
+                "line_no": 3,
+                "timestamp": "2017-05-16T00:03:18Z",
+                "process": "sudo",
+                "category": "authz_security",
+                "severity": "HIGH",
+                "rationale": "The 'deploy' user (uid=1001) opened a root session via sudo immediately after a proxy error on /api/deploy, suggesting privilege escalation may have been triggered by or coincided with a failed deployment API call."
+              }
+            ],
+            "summary": "A 5-event window centered on a deployment pipeline activity at 00:03\u201300:04 UTC on 2017-05-16. A CRON job triggered a deploy-check script, which was followed almost immediately by an Apache proxy error on the /api/deploy endpoint and a sudo session escalation to root by the 'deploy' user. Shortly after, a normal HTTP 200 response was served to an external client, and a 'backup' user session was closed. The proxy error and root escalation during the deploy window are the primary points of interest."
+          },
+          {
+            "chunk_id": 2004,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 3,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "application",
+                "severity": "MEDIUM",
+                "count": 3,
+                "evidence": [
+                  "Line 2: Nova API HTTP 500 for 10.0.5.44 (latency 1.742 s)",
+                  "Line 4: Apache proxy read failure from app-backend:8080",
+                  "Line 6: Nova API HTTP 503 for 10.0.5.44 (latency 2.118 s)"
+                ]
+              },
+              {
+                "category": "network",
+                "severity": "MEDIUM",
+                "count": 2,
+                "evidence": [
+                  "Line 3: eth0 link down at 00:07:04",
+                  "Line 5: eth0 link up at 00:07:09 (5-second outage)"
+                ]
+              },
+              {
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 7: SSL tlsv1 alert unknown_ca \u2014 untrusted client CA at 00:08:16"
+                ]
+              },
+              {
+                "category": "process_lifecycle",
+                "severity": "MEDIUM",
+                "count": 1,
+                "evidence": [
+                  "Line 8: New session 902 opened for user jason via systemd-logind"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 2,
+                "timestamp": "2017-05-16T00:07:01Z",
+                "process": "nova.osapi_compute.wsgi.server",
+                "category": "application",
+                "severity": "MEDIUM",
+                "rationale": "HTTP 500 returned for GET /v2/.../servers/detail from 10.0.5.44; server-side error indicating Nova API or backend is unhealthy."
+              },
+              {
+                "line_no": 3,
+                "timestamp": "2017-05-16T00:07:04Z",
+                "process": "kernel",
+                "category": "network",
+                "severity": "MEDIUM",
+                "rationale": "eth0 link-down event at 00:07:04 \u2014 transient NIC or switch failure that directly precedes proxy and API errors."
+              },
+              {
+                "line_no": 4,
+                "timestamp": "2017-05-16T00:07:07Z",
+                "process": "proxy_http",
+                "category": "application",
+                "severity": "MEDIUM",
+                "rationale": "Apache proxy failed to read status line from app-backend:8080 for client 10.0.5.44 \u2014 backend unreachable or crashed."
+              },
+              {
+                "line_no": 6,
+                "timestamp": "2017-05-16T00:07:12Z",
+                "process": "nova.osapi_compute.wsgi.server",
+                "category": "application",
+                "severity": "MEDIUM",
+                "rationale": "HTTP 503 (service unavailable) returned 11 seconds after the 500, with higher latency (2.118 s) \u2014 backend still not recovered."
+              },
+              {
+                "line_no": 7,
+                "timestamp": "2017-05-16T00:08:16Z",
+                "process": "mod_ssl",
+                "category": "authz_security",
+                "severity": "MEDIUM",
+                "rationale": "TLS alert 'unknown CA' (error:14094418) \u2014 client presented a certificate signed by an untrusted CA, possible misconfiguration or unauthorized client."
+              }
+            ],
+            "summary": "A brief network instability (eth0 link down/up within 5 seconds) at 00:07 coincides with cascading backend failures: an Apache proxy could not read from app-backend:8080, and the Nova compute API returned HTTP 500 and 503 errors to client 10.0.5.44. An SSL unknown-CA alert was also recorded, suggesting a TLS misconfiguration or a rogue/untrusted client certificate. A new user session (jason, session 902) was opened. The OpenStack scheduler reported healthy resource headroom on compute-02 just before the failures began."
+          },
+          {
+            "chunk_id": 2005,
+            "line_start": 1,
+            "line_end": 1,
+            "category_counts": {
+              "network": 1,
+              "process_lifecycle": 1,
+              "system_configuration": 0
+            },
+            "top_findings": [
+              {
+                "category": "application",
+                "severity": "MEDIUM",
+                "count": 3,
+                "evidence": [
+                  "Line 1: nova.compute.manager soft-deleted instance 7b2fd44c (sev=warning)",
+                  "Line 2: httpd File does not exist /var/www/html/favicon.ico (sev=error)",
+                  "Line 4: nova.osapi_compute.wsgi.server GET /v2/.../images/detail HTTP 200 (sev=info)"
+                ]
+              },
+              {
+                "category": "process_lifecycle",
+                "severity": "LOW",
+                "count": 1,
+                "evidence": [
+                  "Line 3: CRON (root) CMD /usr/lib/sa/sa1 1 1 (sev=info) \u2014 routine system-activity accounting job"
+                ]
+              }
+            ],
+            "suspicious_events": [
+              {
+                "line_no": 1,
+                "timestamp": "2017-05-16T00:10:05Z",
+                "process": "nova.compute.manager",
+                "category": "application",
+                "severity": "MEDIUM",
+                "rationale": "Instance 7b2fd44c-32d9-47aa-b6f9-b8f057fd1bc2 was soft-deleted. Unexpected or unauthorized instance deletion can indicate resource abuse or accidental/malicious teardown."
+              },
+              {
+                "line_no": 2,
+                "timestamp": "2017-05-16T00:10:48Z",
+                "process": "httpd",
+                "category": "application",
+                "severity": "LOW",
+                "rationale": "Apache reports 'File does not exist: /var/www/html/favicon.ico'. While often benign, repeated or unexpected 404-class errors can indicate misconfiguration or probing of the web server."
+              }
+            ],
+            "summary": "Four log events spanning a ~2-minute window on 2017-05-16. An OpenStack Nova instance was soft-deleted (warning), Apache reported a missing favicon.ico resource (error), a routine CRON sa1 system-accounting job fired (info), and a Nova API GET /images/detail call returned HTTP 200 (info). No critical failures or confirmed intrusions, but the instance soft-deletion and the Apache 404-class error are worth noting."
+          }
+        ]
+      }
+    }
+  }
+}
