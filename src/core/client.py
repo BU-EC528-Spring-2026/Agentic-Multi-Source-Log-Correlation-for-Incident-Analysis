@@ -344,13 +344,23 @@ class GroqClient(InferenceClient):
         if not api_key.strip():
             raise ValueError("Groq API key is required (set groq_demo2_key in .env)")
 
-        self.client = Groq(api_key=api_key, timeout=float(timeout_seconds))
+        self._api_key = api_key
+        self._tls = threading.local()
+        self._groq_cls = Groq
         self.model = model
         self.temperature = temperature
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.inference_calls: list[dict] = []
         self._inference_lock = threading.Lock()
+
+    @property
+    def _client(self):
+        if not hasattr(self._tls, "client"):
+            self._tls.client = self._groq_cls(
+                api_key=self._api_key, timeout=float(self.timeout_seconds),
+            )
+        return self._tls.client
 
     def chat_structured(
         self,
@@ -385,7 +395,7 @@ class GroqClient(InferenceClient):
         for attempt in range(1, total_attempts + 1):
             try:
                 started_at = time.perf_counter()
-                completion = self.client.chat.completions.create(**kwargs)
+                completion = self._client.chat.completions.create(**kwargs)
                 latency_ms = (time.perf_counter() - started_at) * 1000
 
                 content = completion.choices[0].message.content
@@ -491,8 +501,19 @@ class BedrockClient(InferenceClient):
         self.inference_calls: list[dict] = []
         self._inference_lock = threading.Lock()
         self._client_error_types = (ClientError, BotoCoreError)
-        config = Config(read_timeout=timeout_seconds, connect_timeout=timeout_seconds)
-        self.client = boto3.client("bedrock-runtime", region_name=self.region, config=config)
+        self._boto_config = Config(read_timeout=timeout_seconds, connect_timeout=timeout_seconds)
+        self._boto3 = boto3
+        self._tls = threading.local()
+
+    @property
+    def _client(self):
+        if not hasattr(self._tls, "client"):
+            self._tls.client = self._boto3.client(
+                "bedrock-runtime",
+                region_name=self.region,
+                config=self._boto_config,
+            )
+        return self._tls.client
 
     def chat_structured(
         self,
@@ -536,7 +557,7 @@ class BedrockClient(InferenceClient):
         for attempt in range(1, total_attempts + 1):
             try:
                 started_at = time.perf_counter()
-                response = self.client.converse(**payload)
+                response = self._client.converse(**payload)
                 latency_ms = (time.perf_counter() - started_at) * 1000
 
                 tool_input = self._extract_tool_input(response)

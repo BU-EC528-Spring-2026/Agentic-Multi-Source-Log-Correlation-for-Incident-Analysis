@@ -263,14 +263,26 @@ def build_overview(correlation: dict[str, Any], totals: dict[str, int]) -> dict[
                 "type": item.get("correlation_type"),
                 "confidence": item.get("confidence"),
                 "related_categories": item.get("related_categories", []),
+                "sources": item.get("sources", []),
                 "explanation": item.get("explanation", ""),
             }
         )
+    top_hypotheses = []
+    for item in correlation.get("hypotheses", [])[:5]:
+        if isinstance(item, dict):
+            top_hypotheses.append({
+                "hypothesis": item.get("hypothesis", ""),
+                "sources_cited": item.get("sources_cited", []),
+                "confidence": item.get("confidence", 0.0),
+                "benign_alternatives": item.get("benign_alternatives", []),
+            })
+        elif isinstance(item, str):
+            top_hypotheses.append({"hypothesis": item})
     return {
         "global_summary": correlation.get("global_summary", ""),
         "top_categories": top_categories,
         "top_correlations": top_correlations,
-        "hypotheses": correlation.get("hypotheses", []),
+        "hypotheses": top_hypotheses,
         "timeline_highlights": correlation.get("timeline_highlights", []),
         "recommended_next_queries": correlation.get("next_queries", []),
     }
@@ -471,7 +483,12 @@ def run_llm_pipeline(
             "infra": infra_future.result(),
         }
 
-    correlation = agent.correlate(chunk_analyses=chunk_analyses, seed=seed)
+    correlation = agent.correlate(
+        chunk_analyses=chunk_analyses,
+        source_scoped_analyses=source_scoped,
+        source_agent_findings=source_agent_findings,
+        seed=seed,
+    )
 
     totals = Counter()
     for item in chunk_analyses:

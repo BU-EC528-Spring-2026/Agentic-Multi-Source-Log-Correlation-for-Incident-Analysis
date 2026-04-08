@@ -116,6 +116,7 @@ CORRELATION_SCHEMA = {
                     "correlation_type": {"type": "string"},
                     "confidence": {"type": "number"},
                     "related_categories": {"type": "array", "items": {"type": "string"}},
+                    "sources": {"type": "array", "items": {"type": "string"}},
                     "supporting_evidence": {"type": "array", "items": {"type": "string"}},
                     "explanation": {"type": "string"},
                 },
@@ -124,12 +125,36 @@ CORRELATION_SCHEMA = {
                     "correlation_type",
                     "confidence",
                     "related_categories",
+                    "sources",
                     "supporting_evidence",
                     "explanation",
                 ],
             },
         },
-        "hypotheses": {"type": "array", "items": {"type": "string"}},
+        "hypotheses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "hypothesis": {"type": "string"},
+                    "sources_cited": {"type": "array", "items": {"type": "string"}},
+                    "ordered_narrative": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "counterevidence": {"type": "string"},
+                    "falsifiable_by": {"type": "string"},
+                    "benign_alternatives": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": [
+                    "hypothesis",
+                    "sources_cited",
+                    "ordered_narrative",
+                    "confidence",
+                    "counterevidence",
+                    "falsifiable_by",
+                    "benign_alternatives",
+                ],
+            },
+        },
         "timeline_highlights": {"type": "array", "items": {"type": "string"}},
         "next_queries": {"type": "array", "items": {"type": "string"}},
     },
@@ -191,6 +216,8 @@ class ReasoningAgent:
         self,
         *,
         chunk_analyses: list[dict],
+        source_scoped_analyses: dict[str, list[dict]] | None = None,
+        source_agent_findings: str = "",
         seed: int | None = None,
     ) -> dict:
         if not chunk_analyses:
@@ -209,8 +236,24 @@ class ReasoningAgent:
                 }
             )
 
+        source_scoped_section = ""
+        if source_scoped_analyses:
+            source_scoped_section = self.format_source_scoped_section(
+                source_scoped_analyses,
+            )
+
+        findings_section = ""
+        if source_agent_findings.strip():
+            findings_section = (
+                "\n\nRule-based source-agent incidents (pre-LLM):\n"
+                + source_agent_findings.strip()
+                + "\n"
+            )
+
         prompt = CORRELATION_PROMPT.format(
             chunk_analysis_json=json.dumps(compact_payload, indent=2),
+            source_scoped_section=source_scoped_section,
+            source_agent_findings_section=findings_section,
             category_taxonomy=CATEGORY_TAXONOMY,
         )
         payload = self.llm.chat_structured(
@@ -221,6 +264,35 @@ class ReasoningAgent:
             telemetry={"stage": "correlation"},
         )
         return self.normalize_correlation(payload)
+
+    @staticmethod
+    def format_source_scoped_section(
+        source_scoped: dict[str, list[dict]],
+    ) -> str:
+        parts: list[str] = []
+        for scope_name, analyses in sorted(source_scoped.items()):
+            substantive = [
+                a for a in analyses
+                if a.get("top_findings") or a.get("suspicious_events")
+            ]
+            if not substantive:
+                continue
+            compact = []
+            for item in substantive:
+                compact.append({
+                    "chunk_id": item.get("chunk_id"),
+                    "category_counts": item.get("category_counts", {}),
+                    "top_findings": item.get("top_findings", [])[:6],
+                    "suspicious_events": item.get("suspicious_events", [])[:8],
+                    "summary": item.get("summary", ""),
+                })
+            parts.append(
+                f"Source-scoped analyses ({scope_name}):\n"
+                + json.dumps(compact, indent=2)
+            )
+        if not parts:
+            return ""
+        return "\n\n" + "\n\n".join(parts) + "\n"
 
     def normalize_chunk_analysis(
         self,
@@ -315,12 +387,14 @@ class ReasoningAgent:
                 text = str(raw_supporting).strip()
                 if text and text not in supporting:
                     supporting.append(text)
+            sources = self.clean_text_list(item.get("sources", []))
             normalized_patterns.append(
                 {
                     "pattern_id": str(item.get("pattern_id", "P?")),
                     "correlation_type": str(item.get("correlation_type", "other")),
                     "confidence": round(confidence, 3),
                     "related_categories": related_categories,
+                    "sources": sources,
                     "supporting_evidence": supporting[:6],
                     "explanation": str(item.get("explanation", "")),
                 }
@@ -340,10 +414,46 @@ class ReasoningAgent:
             "global_summary": str(payload.get("global_summary", "")),
             "category_totals": dict(sorted(category_totals.items())),
             "key_correlations": normalized_patterns,
-            "hypotheses": self.clean_text_list(payload.get("hypotheses", [])),
+            "hypotheses": self._normalize_hypotheses(payload.get("hypotheses", [])),
             "timeline_highlights": self.clean_text_list(payload.get("timeline_highlights", [])),
             "next_queries": self.clean_text_list(payload.get("next_queries", [])),
         }
+
+    def _normalize_hypotheses(self, raw: object) -> list[dict]:
+        if not isinstance(raw, list):
+            return []
+        out: list[dict] = []
+        for item in raw:
+            if isinstance(item, str):
+                out.append({
+                    "hypothesis": item.strip(),
+                    "sources_cited": [],
+                    "ordered_narrative": "",
+                    "confidence": 0.0,
+                    "counterevidence": "",
+                    "falsifiable_by": "",
+                    "benign_alternatives": [],
+                })
+                continue
+            if not isinstance(item, dict):
+                continue
+            conf_raw = item.get("confidence", 0.0)
+            try:
+                conf = min(1.0, max(0.0, float(conf_raw)))
+            except (TypeError, ValueError):
+                conf = 0.0
+            out.append({
+                "hypothesis": str(item.get("hypothesis", "")).strip(),
+                "sources_cited": self.clean_text_list(item.get("sources_cited", [])),
+                "ordered_narrative": str(item.get("ordered_narrative", "")).strip(),
+                "confidence": round(conf, 3),
+                "counterevidence": str(item.get("counterevidence", "")).strip(),
+                "falsifiable_by": str(item.get("falsifiable_by", "")).strip(),
+                "benign_alternatives": self.clean_text_list(
+                    item.get("benign_alternatives", [])
+                ),
+            })
+        return [h for h in out if h["hypothesis"]]
 
     def normalize_category(self, value: object) -> str:
         normalized = str(value).strip().lower().replace(" ", "_").replace("-", "_")
