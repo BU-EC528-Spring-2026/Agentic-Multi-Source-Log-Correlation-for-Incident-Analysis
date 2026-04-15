@@ -13,12 +13,7 @@ from src.agents.correlation.correlation_agent import (
 )
 from src.agents.log_analyzer import ReasoningAgent
 from src.agents.orchestrator_agent import run_source_agents
-from src.agents.source_adapters import (
-    analyze_apache_events,
-    analyze_auth_events,
-    analyze_linux_events,
-    analyze_openstack_events,
-)
+from src.agents.source_adapters import analyze_auth_events, analyze_infra_events
 from src.common import load_logs
 from src.core.client import create_client
 from src.core.config import (
@@ -323,29 +318,23 @@ def summarize_source_agent_results(results: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-MAX_SOURCE_AGENT_FINDINGS = 30
-SOURCE_AGENT_SEVERITY_FLOOR = {"HIGH", "MEDIUM"}
+MAX_SOURCE_AGENT_FINDINGS = 10
 
 
 def format_source_agent_findings(findings: list[dict[str, Any]]) -> str:
-    relevant = [
-        f for f in findings
-        if str(f.get("severity", "")).upper() in SOURCE_AGENT_SEVERITY_FLOOR
-    ]
-    if not relevant:
+    high = [f for f in findings if str(f.get("severity", "")).upper() == "HIGH"]
+    if not high:
         return ""
-    relevant.sort(key=lambda f: f.get("severity", "") != "HIGH")
-    relevant = relevant[:MAX_SOURCE_AGENT_FINDINGS]
-    lines = ["Source-agent findings (rule-based, HIGH + MEDIUM severity):"]
-    for f in relevant:
+    high = high[:MAX_SOURCE_AGENT_FINDINGS]
+    lines = ["Source-agent findings (rule-based, HIGH severity only):"]
+    for f in high:
         agent = f.get("agent", "unknown")
-        sev = str(f.get("severity", "")).upper()
         cat = f.get("event_category", "")
         summary = f.get("summary", "")
         ts_start = f.get("start_timestamp", "")
         ts_end = f.get("end_timestamp", "")
         evidence = f.get("evidence_ids", [])
-        entry = f"- [{agent}] [{sev}] {cat}: {summary}"
+        entry = f"- [{agent}] {cat}: {summary}"
         if ts_start:
             entry += f" ({ts_start} - {ts_end})"
         if evidence:
@@ -488,21 +477,20 @@ def run_llm_pipeline(
             pool.submit(_analyze_one_chunk, cid, chunk): cid
             for cid, chunk in enumerate(chunks, start=1)
         }
-        source_lane_specs = [
-            ("auth", analyze_auth_events, 1000),
-            ("openstack", analyze_openstack_events, 2000),
-            ("linux", analyze_linux_events, 3000),
-            ("apache", analyze_apache_events, 4000),
-        ]
-        source_futures = {}
-        for lane_name, lane_fn, id_base in source_lane_specs:
-            source_futures[lane_name] = pool.submit(
-                lane_fn,
-                agent,
-                events,
-                chunk_id=max(id_base, num_chunks + id_base - 999),
-                seed=None if seed is None else seed + id_base,
-            )
+        auth_future = pool.submit(
+            analyze_auth_events,
+            agent,
+            events,
+            chunk_id=max(1000, num_chunks + 1),
+            seed=None if seed is None else seed + 1000,
+        )
+        infra_future = pool.submit(
+            analyze_infra_events,
+            agent,
+            events,
+            chunk_id=max(2000, num_chunks + 1001),
+            seed=None if seed is None else seed + 2000,
+        )
 
         chunk_results: dict[int, dict] = {}
         for future in as_completed(chunk_futures):
@@ -511,7 +499,8 @@ def run_llm_pipeline(
         chunk_analyses = [chunk_results[cid] for cid in sorted(chunk_results)]
 
         source_scoped = {
-            name: fut.result() for name, fut in source_futures.items()
+            "auth": auth_future.result(),
+            "infra": infra_future.result(),
         }
 
     correlation = agent.correlate(
