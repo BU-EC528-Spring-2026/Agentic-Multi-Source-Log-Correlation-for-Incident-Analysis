@@ -13,6 +13,10 @@ BEDROCK_MODEL = (
     or os.getenv("BEDROCK_MODEL", "").strip()
     or os.getenv("AWS_BEDROCK_MODEL_ID", "").strip()
 )
+BEDROCK_CHUNK_MODEL = (
+    os.getenv("BEDROCK_CHUNK_MODEL_ID", "").strip()
+    or BEDROCK_MODEL
+)
 
 
 def _aws_credentials_available() -> bool:
@@ -76,6 +80,16 @@ DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 DEFAULT_CHUNK_SIZE = int(os.getenv("LOG_CHUNK_SIZE", "250"))
 GROQ_CHUNK_SIZE = int(os.getenv("GROQ_CHUNK_SIZE", "40"))
 DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "8000"))
+DEFAULT_LANE_MAX_CHUNKS = int(os.getenv("LANE_MAX_CHUNKS", "6"))
 DEFAULT_CHUNK_STRATEGY = os.getenv("CHUNK_STRATEGY", "adaptive").strip().lower()
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "8"))
 RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "1").strip() != "0"
+ESTIMATED_TOKENS_PER_EVENT = int(os.getenv("ESTIMATED_TOKENS_PER_EVENT", "80"))
+ESTIMATED_OUTPUT_TOKENS_PER_CHUNK = int(
+    os.getenv("ESTIMATED_OUTPUT_TOKENS_PER_CHUNK", "500")
+)
+ESTIMATED_CORRELATION_INPUT_TOKENS = int(
+    os.getenv("ESTIMATED_CORRELATION_INPUT_TOKENS", "40000")
+)
+HAIKU_INPUT_COST_PER_MTOK = float(os.getenv("HAIKU_INPUT_COST_PER_MTOK", "0.25"))
+HAIKU_OUTPUT_COST_PER_MTOK = float(os.getenv("HAIKU_OUTPUT_COST_PER_MTOK", "1.25"))
