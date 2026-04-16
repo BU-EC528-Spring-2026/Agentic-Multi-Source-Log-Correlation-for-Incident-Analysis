@@ -23,6 +23,12 @@ from src.common import load_logs
 from src.core.client import create_client
 from src.core.config import (
     BEDROCK_MODEL,
+    BEDROCK_MODEL_APACHE,
+    BEDROCK_MODEL_AUTH,
+    BEDROCK_MODEL_HAIKU,
+    BEDROCK_MODEL_LINUX,
+    BEDROCK_MODEL_OPENSTACK,
+    BEDROCK_MODEL_SONNET,
     BEDROCK_REGION,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CHUNK_STRATEGY,
@@ -325,6 +331,12 @@ def summarize_source_agent_results(results: list[dict[str, Any]]) -> dict[str, A
 
 MAX_SOURCE_AGENT_FINDINGS = 30
 SOURCE_AGENT_SEVERITY_FLOOR = {"HIGH", "MEDIUM"}
+SOURCE_AGENT_TO_LANE = {
+    "auth_agent": "auth",
+    "apache_access_agent": "apache",
+    "linux_system_agent": "linux",
+    "openstack_vm_agent": "openstack",
+}
 
 
 def format_source_agent_findings(findings: list[dict[str, Any]]) -> str:
@@ -346,6 +358,41 @@ def format_source_agent_findings(findings: list[dict[str, Any]]) -> str:
         ts_end = f.get("end_timestamp", "")
         evidence = f.get("evidence_ids", [])
         entry = f"- [{agent}] [{sev}] {cat}: {summary}"
+        if ts_start:
+            entry += f" ({ts_start} - {ts_end})"
+        if evidence:
+            entry += f" [evidence: {', '.join(str(e) for e in evidence[:5])}]"
+        lines.append(entry)
+    return "\n".join(lines)
+
+
+def format_source_agent_findings_for_lane(
+    findings: list[dict[str, Any]],
+    lane_name: str,
+) -> str:
+    lane = str(lane_name).strip().lower()
+    relevant = []
+    for item in findings:
+        if str(item.get("severity", "")).upper() not in SOURCE_AGENT_SEVERITY_FLOOR:
+            continue
+        mapped_lane = SOURCE_AGENT_TO_LANE.get(str(item.get("agent", "")).strip().lower())
+        if mapped_lane == lane:
+            relevant.append(item)
+
+    if not relevant:
+        return ""
+
+    relevant.sort(key=lambda f: f.get("severity", "") != "HIGH")
+    relevant = relevant[:MAX_SOURCE_AGENT_FINDINGS]
+    lines = [f"Rule-based findings for {lane} lane (HIGH + MEDIUM):"]
+    for f in relevant:
+        sev = str(f.get("severity", "")).upper()
+        cat = f.get("event_category", "")
+        summary = f.get("summary", "")
+        ts_start = f.get("start_timestamp", "")
+        ts_end = f.get("end_timestamp", "")
+        evidence = f.get("evidence_ids", [])
+        entry = f"- [{sev}] {cat}: {summary}"
         if ts_start:
             entry += f" ({ts_start} - {ts_end})"
         if evidence:
@@ -434,10 +481,12 @@ def run_llm_pipeline(
     chunk_size: int,
     chunk_strategy: str = "adaptive",
     source_agent_findings: str = "",
+    source_agent_findings_raw: list[dict[str, Any]] | None = None,
     temperature: float,
     timeout_seconds: int,
     max_retries: int,
     seed: int | None,
+    source_lane_models: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     if chunk_strategy == "adaptive":
         chunks = chunk_logs_adaptive(events, chunk_size=chunk_size)
@@ -461,6 +510,7 @@ def run_llm_pipeline(
         max_retries=max_retries,
     )
     agent = ReasoningAgent(llm)
+    lane_models = source_lane_models or {}
 
     LLM_CONCURRENCY = 4
 
@@ -483,6 +533,7 @@ def run_llm_pipeline(
         return chunk_id, result
 
     num_chunks = len(chunks)
+    lane_clients: dict[str, Any] = {}
     with ThreadPoolExecutor(max_workers=LLM_CONCURRENCY) as pool:
         chunk_futures = {
             pool.submit(_analyze_one_chunk, cid, chunk): cid
@@ -496,12 +547,29 @@ def run_llm_pipeline(
         ]
         source_futures = {}
         for lane_name, lane_fn, id_base in source_lane_specs:
+            lane_model_candidates = lane_models.get(lane_name, models)
+            lane_client = create_client(
+                provider=provider,
+                models=lane_model_candidates,
+                api_key=api_key,
+                region=region,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries,
+            )
+            lane_clients[lane_name] = lane_client
+            lane_agent = ReasoningAgent(lane_client)
+            lane_rule_hint = format_source_agent_findings_for_lane(
+                source_agent_findings_raw or [],
+                lane_name,
+            )
             source_futures[lane_name] = pool.submit(
                 lane_fn,
-                agent,
+                lane_agent,
                 events,
                 chunk_id=max(id_base, num_chunks + id_base - 999),
                 seed=None if seed is None else seed + id_base,
+                rule_findings_hint=lane_rule_hint,
             )
 
         chunk_results: dict[int, dict] = {}
@@ -510,9 +578,7 @@ def run_llm_pipeline(
             chunk_results[cid] = future.result()[1]
         chunk_analyses = [chunk_results[cid] for cid in sorted(chunk_results)]
 
-        source_scoped = {
-            name: fut.result() for name, fut in source_futures.items()
-        }
+        source_scoped = {name: fut.result() for name, fut in source_futures.items()}
 
     correlation = agent.correlate(
         chunk_analyses=chunk_analyses,
@@ -531,6 +597,10 @@ def run_llm_pipeline(
             "provider": provider,
             "model": llm.model,
             "model_candidates": models,
+            "source_lane_models": {
+                lane: (lane_models.get(lane, models) or models)[0]
+                for lane in ("auth", "openstack", "linux", "apache")
+            },
             "chunk_size": chunk_size,
             "chunk_strategy": chunk_strategy,
             "temperature": temperature,
@@ -547,6 +617,10 @@ def run_llm_pipeline(
             "correlation_report": correlation,
             "chunk_analyses": chunk_analyses,
             "source_scoped_chunk_analyses": source_scoped,
+            "source_lane_inference": {
+                lane: client.get_inference_telemetry()
+                for lane, client in sorted(lane_clients.items())
+            },
         },
     }
 
@@ -567,6 +641,7 @@ def run(
     timeout_seconds: int,
     max_retries: int,
     seed: int | None,
+    source_lane_models: dict[str, list[str]] | None = None,
     drop_low_signal: bool,
     ingest_if_needed: bool,
     skip_llm: bool,
@@ -574,6 +649,9 @@ def run(
     provider_ready: bool | None = None,
     provider_hint: str | None = None,
 ) -> dict[str, Any]:
+    if source_lane_models is None:
+        source_lane_models = resolve_source_lane_models(provider, models)
+
     events, input_meta, normalized_records = prepare_pipeline_inputs(
         log_file=log_file,
         normalized_log_file=normalized_log_file,
@@ -619,7 +697,16 @@ def run(
     else:
         if provider_ready is None:
             if provider == "bedrock":
-                provider_ready = bedrock_configured(models[0] if models else "")
+                lane_models = [
+                    mids[0]
+                    for mids in (source_lane_models or {}).values()
+                    if mids and str(mids[0]).strip()
+                ]
+                candidate_model = (
+                    (models[0] if models else "")
+                    or (lane_models[0] if lane_models else "")
+                )
+                provider_ready = bedrock_configured(candidate_model)
             else:
                 provider_ready = bool(api_key)
         if provider_hint is None:
@@ -656,10 +743,12 @@ def run(
             chunk_size=chunk_size,
             chunk_strategy=chunk_strategy,
             source_agent_findings=source_agent_findings,
+            source_agent_findings_raw=report.get("source_agents", {}).get("findings", []),
             temperature=temperature,
             timeout_seconds=timeout_seconds,
             max_retries=max_retries,
             seed=seed,
+            source_lane_models=source_lane_models,
         )
 
     out_path = Path(output_file)
@@ -760,6 +849,30 @@ def resolve_provider_settings(
     )
 
 
+def resolve_source_lane_models(
+    provider: str,
+    default_models: list[str],
+) -> dict[str, list[str]]:
+    if provider != "bedrock":
+        return {}
+
+    default_model = default_models[0] if default_models else ""
+
+    def pick(model_id: str) -> list[str]:
+        chosen = str(model_id).strip() or default_model
+        return [chosen] if chosen else []
+
+    haiku_model = str(BEDROCK_MODEL_HAIKU).strip()
+    sonnet_model = str(BEDROCK_MODEL_SONNET).strip()
+
+    return {
+        "auth": pick(BEDROCK_MODEL_AUTH or haiku_model),
+        "apache": pick(BEDROCK_MODEL_APACHE or haiku_model),
+        "linux": pick(BEDROCK_MODEL_LINUX or sonnet_model),
+        "openstack": pick(BEDROCK_MODEL_OPENSTACK or sonnet_model),
+    }
+
+
 if __name__ == "__main__":
     args = build_parser().parse_args()
     try:
@@ -767,6 +880,7 @@ if __name__ == "__main__":
         model, cli_models, api_key, region, provider_ready, provider_hint = (
             resolve_provider_settings(provider, args.model)
         )
+        source_lane_models = resolve_source_lane_models(provider, cli_models)
 
         chunk_size = args.chunk_size
         if chunk_size is None:
@@ -793,6 +907,7 @@ if __name__ == "__main__":
             timeout_seconds=args.timeout_seconds,
             max_retries=args.max_retries,
             seed=args.seed,
+            source_lane_models=source_lane_models,
             drop_low_signal=args.drop_low_signal,
             ingest_if_needed=not args.skip_ingestion,
             skip_llm=args.skip_llm,

@@ -129,6 +129,27 @@ On Windows, use cmd (`set AWS_REGION=us-east-1`, `set BEDROCK_MODEL_ID=...`) or 
 
 `BEDROCK_MODEL_ID` can also be set as `BEDROCK_MODEL` or `AWS_BEDROCK_MODEL_ID`. If `AWS_REGION` is unset, `BEDROCK_REGION` or `AWS_DEFAULT_REGION` are used.
 
+Optional per-source model overrides (Bedrock provider only):
+
+```bash
+export BEDROCK_MODEL_AUTH=anthropic.claude-haiku-4-5-20251001-v1:0
+export BEDROCK_MODEL_APACHE=anthropic.claude-haiku-4-5-20251001-v1:0
+export BEDROCK_MODEL_LINUX=anthropic.claude-sonnet-4-6
+export BEDROCK_MODEL_OPENSTACK=anthropic.claude-sonnet-4-6
+```
+
+If any of these are unset, that source lane falls back to `BEDROCK_MODEL_ID`.
+You can also set family aliases and keep lane-specific overrides optional:
+
+```bash
+export BEDROCK_MODEL_HAIKU=anthropic.claude-haiku-4-5-20251001-v1:0
+export BEDROCK_MODEL_SONNET=anthropic.claude-sonnet-4-6
+```
+
+When set, `BEDROCK_MODEL_HAIKU` maps to `auth` + `apache`, and
+`BEDROCK_MODEL_SONNET` maps to `linux` + `openstack` unless a lane-specific
+variable is also provided.
+
 ## Workflow
 
 Ingest, build the retrieval index, then run Bedrock-backed `main` (same sequence as `reports/sonnet_report.json`). Step 4 needs [AWS Bedrock setup](#aws-bedrock-setup).

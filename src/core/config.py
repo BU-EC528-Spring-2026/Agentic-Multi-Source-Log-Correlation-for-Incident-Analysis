@@ -13,6 +13,12 @@ BEDROCK_MODEL = (
     or os.getenv("BEDROCK_MODEL", "").strip()
     or os.getenv("AWS_BEDROCK_MODEL_ID", "").strip()
 )
+BEDROCK_MODEL_AUTH = os.getenv("BEDROCK_MODEL_AUTH", "").strip()
+BEDROCK_MODEL_APACHE = os.getenv("BEDROCK_MODEL_APACHE", "").strip()
+BEDROCK_MODEL_LINUX = os.getenv("BEDROCK_MODEL_LINUX", "").strip()
+BEDROCK_MODEL_OPENSTACK = os.getenv("BEDROCK_MODEL_OPENSTACK", "").strip()
+BEDROCK_MODEL_HAIKU = os.getenv("BEDROCK_MODEL_HAIKU", "").strip()
+BEDROCK_MODEL_SONNET = os.getenv("BEDROCK_MODEL_SONNET", "").strip()
 
 
 def _aws_credentials_available() -> bool:
