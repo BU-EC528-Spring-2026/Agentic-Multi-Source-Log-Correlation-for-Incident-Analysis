@@ -13,6 +13,13 @@ BRACKET_PID = re.compile(r"\[(\d+)\]")
 KV_PID = re.compile(r"\bpid=(\d+)\b", re.IGNORECASE)
 PATH = re.compile(r"(?<!<)(?:/[A-Za-z0-9._-]+)+")
 NUMBER = re.compile(r"\b\d+\b")
+DECISIVE_EVENT_PATTERNS = [
+    re.compile(r"Accepted\s+(?:password|publickey)", re.IGNORECASE),
+    re.compile(r"session\s+opened", re.IGNORECASE),
+    re.compile(r"FTP\s+connection", re.IGNORECASE),
+    re.compile(r"logrotate.*exited?\s+with", re.IGNORECASE),
+    re.compile(r"segfault|OOM|out of memory", re.IGNORECASE),
+]
 
 SEVERITY_ORDER = {
     "debug": 0,
@@ -98,12 +105,14 @@ def deduplicate_events(
     *,
     keep_threshold: int = 3,
     preserve_severity: set[str] | None = None,
+    preserve_patterns: list[re.Pattern[str]] | None = None,
 ) -> list[LogEvent]:
     """Compress repeated templates while keeping leading/trailing and severe events."""
     if not events:
         return []
 
     preserve = {value.strip().lower() for value in (preserve_severity or HIGH_SEVERITIES)}
+    patterns = DECISIVE_EVENT_PATTERNS if preserve_patterns is None else preserve_patterns
     indexed_templates = [
         (index, event, extract_event_template(event.message))
         for index, event in enumerate(events)
@@ -128,6 +137,11 @@ def deduplicate_events(
             index
             for index, event in group
             if event.severity.strip().lower() in preserve
+        )
+        keep.update(
+            index
+            for index, event in group
+            if any(pattern.search(event.message) for pattern in patterns)
         )
         selected_indices.update(keep)
 
