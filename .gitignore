@@ -6,6 +6,8 @@ __pycache__/
 .DS_Store
 .env
 tests/
+!tests/
+!tests/*.py
 # Python cache
 __pycache__/
 *.pyc
@@ -45,6 +47,11 @@ htmlcov/
 
 # Data files (if logs/datasets are large)
 data/
+!data/
+data/*
+!data/README.md
+!data/synthetic_logs/
+!data/synthetic_logs/**
 datasets/
 
 # Temporary files
@@ -57,3 +64,4 @@ Thumbs.db
 *.bak
 
 normalized/
+.omx/
