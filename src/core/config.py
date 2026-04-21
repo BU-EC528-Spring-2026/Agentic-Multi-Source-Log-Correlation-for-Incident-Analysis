@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
@@ -13,14 +14,22 @@ BEDROCK_MODEL = (
     or os.getenv("BEDROCK_MODEL", "").strip()
     or os.getenv("AWS_BEDROCK_MODEL_ID", "").strip()
 )
+BEDROCK_CHUNK_MODEL_ID = os.getenv("BEDROCK_CHUNK_MODEL_ID", "").strip()
+BEDROCK_CHUNK_MODEL = (
+    BEDROCK_CHUNK_MODEL_ID
+    or BEDROCK_MODEL
+)
 
 
 def _aws_credentials_available() -> bool:
     try:
         import boto3
-
+    except ImportError:
+        return False
+    try:
         return boto3.Session().get_credentials() is not None
-    except Exception:
+    except OSError as exc:
+        print(f"Warning: unable to inspect AWS credentials: {exc}", file=sys.stderr)
         return False
 
 
@@ -73,9 +82,25 @@ DEFAULT_PROVIDER = default_provider()
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 DEFAULT_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
+CORRELATION_TIMEOUT_SECONDS = max(60, int(os.getenv("CORRELATION_TIMEOUT_SECONDS", "300")))
 DEFAULT_CHUNK_SIZE = int(os.getenv("LOG_CHUNK_SIZE", "250"))
 GROQ_CHUNK_SIZE = int(os.getenv("GROQ_CHUNK_SIZE", "40"))
 DEFAULT_MAX_LINES = int(os.getenv("LOG_MAX_LINES", "8000"))
+DEFAULT_LANE_MAX_CHUNKS = int(os.getenv("LANE_MAX_CHUNKS", "6"))
 DEFAULT_CHUNK_STRATEGY = os.getenv("CHUNK_STRATEGY", "adaptive").strip().lower()
+DEFAULT_CORRELATION_SELECTION = os.getenv(
+    "CORRELATION_SELECTION",
+    "stratified",
+).strip().lower()
+MAX_FACTS_BLOCK_LINES = max(1, int(os.getenv("MAX_FACTS_BLOCK_LINES", "50")))
 RETRIEVAL_TOP_K = int(os.getenv("RETRIEVAL_TOP_K", "8"))
-RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "1").strip() != "0"
+RETRIEVAL_CONTEXT = os.getenv("RETRIEVAL_CONTEXT", "0").strip() != "0"
+ESTIMATED_TOKENS_PER_EVENT = int(os.getenv("ESTIMATED_TOKENS_PER_EVENT", "80"))
+ESTIMATED_OUTPUT_TOKENS_PER_CHUNK = int(
+    os.getenv("ESTIMATED_OUTPUT_TOKENS_PER_CHUNK", "500")
+)
+ESTIMATED_CORRELATION_INPUT_TOKENS = int(
+    os.getenv("ESTIMATED_CORRELATION_INPUT_TOKENS", "40000")
+)
+HAIKU_INPUT_COST_PER_MTOK = float(os.getenv("HAIKU_INPUT_COST_PER_MTOK", "0.25"))
+HAIKU_OUTPUT_COST_PER_MTOK = float(os.getenv("HAIKU_OUTPUT_COST_PER_MTOK", "1.25"))

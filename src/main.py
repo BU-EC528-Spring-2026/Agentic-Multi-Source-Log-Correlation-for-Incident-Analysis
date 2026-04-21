@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -22,10 +23,15 @@ from src.agents.source_adapters import (
 from src.common import load_logs
 from src.core.client import create_client
 from src.core.config import (
+    BEDROCK_CHUNK_MODEL,
+    BEDROCK_CHUNK_MODEL_ID,
     BEDROCK_MODEL,
     BEDROCK_REGION,
+    CORRELATION_TIMEOUT_SECONDS,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_CHUNK_STRATEGY,
+    DEFAULT_CORRELATION_SELECTION,
+    DEFAULT_LANE_MAX_CHUNKS,
     DEFAULT_MAX_LINES,
     DEFAULT_MAX_RETRIES,
     DEFAULT_PROVIDER,
@@ -34,6 +40,7 @@ from src.core.config import (
     GROQ_API_KEY,
     GROQ_CHUNK_SIZE,
     GROQ_MODEL,
+    MAX_FACTS_BLOCK_LINES,
     OPENROUTER_API_KEY,
     OPENROUTER_MODEL,
     OPENROUTER_MODEL_CANDIDATES,
@@ -41,6 +48,9 @@ from src.core.config import (
     RETRIEVAL_TOP_K,
     bedrock_configured,
 )
+from src.core.cost import estimate_pipeline_cost, format_cost_estimate
+from src.core.correlation_facts import extract_security_facts, format_facts_block
+from src.core.dedup import deduplicate_events
 from src.core.log_event import (
     LogEvent,
     build_events,
@@ -49,7 +59,6 @@ from src.core.log_event import (
 )
 from src.core.log_parser import ParsedLog, chunk_logs, chunk_logs_adaptive, parse_logs
 from src.ingestion.ingest_logs import (
-    DATA_ROOT,
     DATASET_PATHS,
     OUTPUT_JSONL,
     OUTPUT_SUMMARY,
@@ -68,7 +77,7 @@ LOW_SIGNAL_MARKERS = (
 DEMO_NORMALIZED_LOG_FILE = (
     Path(__file__).resolve().parent.parent / "examples" / "demo_unified_logs.jsonl"
 )
-DEFAULT_RAW_LOG_FILE = str(DATA_ROOT / "Mac" / "Mac_2k.log")
+DEFAULT_RAW_LOG_FILE = ""
 
 
 def analysis_report_versioning(stem: str) -> Path:
@@ -245,10 +254,30 @@ def prepare_pipeline_inputs(
     )
 
 
+def effective_category_counts(item: dict[str, Any]) -> dict[str, int]:
+    existing = item.get("category_counts") or {}
+    if existing:
+        return dict(existing)
+    counts: Counter = Counter()
+    for ev in item.get("suspicious_events") or []:
+        if isinstance(ev, dict):
+            cat = ev.get("category")
+            if cat:
+                counts[str(cat)] += 1
+    if counts:
+        return dict(sorted(counts.items()))
+    for tf in item.get("top_findings") or []:
+        if isinstance(tf, dict):
+            cat = tf.get("category")
+            if cat:
+                counts[str(cat)] += max(0, int(tf.get("count", 0)))
+    return dict(sorted(counts.items()))
+
+
 def build_chunk_overview(chunk_analyses: list[dict[str, Any]]) -> list[dict[str, Any]]:
     overview = []
     for item in chunk_analyses:
-        category_counts = item.get("category_counts", {})
+        category_counts = effective_category_counts(item)
         top_categories = sorted(
             [{"category": key, "count": value} for key, value in category_counts.items()],
             key=lambda entry: entry["count"],
@@ -292,6 +321,13 @@ def build_overview(correlation: dict[str, Any], totals: dict[str, int]) -> dict[
                 "sources_cited": item.get("sources_cited", []),
                 "confidence": item.get("confidence", 0.0),
                 "benign_alternatives": item.get("benign_alternatives", []),
+                "confidence_level": item.get("confidence_level", ""),
+                "confidence_detail": item.get("confidence_detail", ""),
+                "spurious_risk": item.get("spurious_risk", ""),
+                "spurious_risk_reasoning": item.get("spurious_risk_reasoning", ""),
+                "causal_chain": item.get("causal_chain", []),
+                "red_herrings": item.get("red_herrings", []),
+                "confounding_factors": item.get("confounding_factors", []),
             })
         elif isinstance(item, str):
             top_hypotheses.append({"hypothesis": item})
@@ -302,6 +338,7 @@ def build_overview(correlation: dict[str, Any], totals: dict[str, int]) -> dict[
         "hypotheses": top_hypotheses,
         "timeline_highlights": correlation.get("timeline_highlights", []),
         "recommended_next_queries": correlation.get("next_queries", []),
+        "red_herrings": correlation.get("red_herrings", []),
     }
 
 
@@ -323,29 +360,47 @@ def summarize_source_agent_results(results: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-MAX_SOURCE_AGENT_FINDINGS = 30
-SOURCE_AGENT_SEVERITY_FLOOR = {"HIGH", "MEDIUM"}
+MAX_SOURCE_AGENT_FINDINGS = 20
+SECURITY_MEDIUM_CATEGORIES = frozenset({
+    "repeated_authentication_failure",
+    "invalid_user_attempt",
+    "successful_auth_after_failures",
+    "suspicious_login_burst",
+    "privileged_command",
+    "privilege_or_access_violation",
+    "lifecycle_churn",
+    "apache_access_denied_pattern",
+})
 
 
 def format_source_agent_findings(findings: list[dict[str, Any]]) -> str:
-    relevant = [
-        f for f in findings
-        if str(f.get("severity", "")).upper() in SOURCE_AGENT_SEVERITY_FLOOR
-    ]
-    if not relevant:
+    selected = []
+    for finding in findings:
+        severity = str(finding.get("severity", "")).upper()
+        category = str(finding.get("event_category", ""))
+        if severity == "HIGH" or (
+            severity == "MEDIUM" and category in SECURITY_MEDIUM_CATEGORIES
+        ):
+            selected.append(finding)
+    if not selected:
         return ""
-    relevant.sort(key=lambda f: f.get("severity", "") != "HIGH")
-    relevant = relevant[:MAX_SOURCE_AGENT_FINDINGS]
-    lines = ["Source-agent findings (rule-based, HIGH + MEDIUM severity):"]
-    for f in relevant:
+    selected.sort(
+        key=lambda finding: (
+            0 if str(finding.get("severity", "")).upper() == "HIGH" else 1,
+            str(finding.get("start_timestamp", "")),
+            str(finding.get("event_category", "")),
+        )
+    )
+    selected = selected[:MAX_SOURCE_AGENT_FINDINGS]
+    lines = ["Source-agent findings (rule-based, HIGH and MEDIUM security):"]
+    for f in selected:
         agent = f.get("agent", "unknown")
-        sev = str(f.get("severity", "")).upper()
         cat = f.get("event_category", "")
         summary = f.get("summary", "")
         ts_start = f.get("start_timestamp", "")
         ts_end = f.get("end_timestamp", "")
         evidence = f.get("evidence_ids", [])
-        entry = f"- [{agent}] [{sev}] {cat}: {summary}"
+        entry = f"- [{agent}] {cat}: {summary}"
         if ts_start:
             entry += f" ({ts_start} - {ts_end})"
         if evidence:
@@ -434,35 +489,64 @@ def run_llm_pipeline(
     chunk_size: int,
     chunk_strategy: str = "adaptive",
     source_agent_findings: str = "",
+    enable_source_lanes: bool = False,
+    compact_events: bool = True,
+    correlation_selection: str = DEFAULT_CORRELATION_SELECTION,
     temperature: float,
     timeout_seconds: int,
+    correlation_timeout_seconds: int = CORRELATION_TIMEOUT_SECONDS,
     max_retries: int,
     seed: int | None,
+    concurrency: int = 4,
+    deadline_seconds: int = 0,
+    lane_max_chunks: int = DEFAULT_LANE_MAX_CHUNKS,
 ) -> dict[str, Any]:
+    deduplicated_events = deduplicate_events(events)
     if chunk_strategy == "adaptive":
-        chunks = chunk_logs_adaptive(events, chunk_size=chunk_size)
+        chunks = chunk_logs_adaptive(deduplicated_events, chunk_size=chunk_size)
     else:
-        chunks = chunk_logs(events, chunk_size=chunk_size)
-    retrieval_context = RetrievalContext.load() if RETRIEVAL_CONTEXT else None
+        chunks = chunk_logs(deduplicated_events, chunk_size=chunk_size)
+    retrieval_context = (
+        RetrievalContext.load() if RETRIEVAL_CONTEXT and RETRIEVAL_TOP_K > 0 else None
+    )
     allowed_ids: set[str] | None = None
     if retrieval_context is not None:
         allowed_ids = {
-            str(e.raw_metadata.get("line_id", "")).strip() for e in events
+            str(e.raw_metadata.get("line_id", "")).strip()
+            for e in deduplicated_events
         } - {""}
         if not allowed_ids:
             allowed_ids = None
     llm = create_client(
         provider=provider,
         models=models,
+        chunk_model=(
+            BEDROCK_CHUNK_MODEL
+            if provider == "bedrock" and BEDROCK_CHUNK_MODEL_ID
+            else ""
+        ),
         api_key=api_key,
         region=region,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
+        correlation_timeout_seconds=correlation_timeout_seconds,
     )
     agent = ReasoningAgent(llm)
+    pipeline_t0 = datetime.now(timezone.utc)
+    deadline_at = (
+        time.monotonic() + deadline_seconds
+        if deadline_seconds > 0
+        else None
+    )
 
-    LLM_CONCURRENCY = 4
+    def remaining_budget() -> float | None:
+        if deadline_at is None:
+            return None
+        left = deadline_at - time.monotonic()
+        if left <= 0:
+            raise TimeoutError(f"LLM pipeline deadline ({deadline_seconds}s) exceeded")
+        return left
 
     def _analyze_one_chunk(chunk_id: int, chunk: list[LogEvent]) -> tuple[int, dict]:
         chunk_seed = None if seed is None else seed + chunk_id
@@ -477,53 +561,87 @@ def run_llm_pipeline(
             chunk_id=chunk_id,
             entries=chunk,
             seed=chunk_seed,
-            source_agent_findings=source_agent_findings,
             extra_user_suffix=retrieval_suffix,
+            compact_events=compact_events,
+            include_retrieval=retrieval_context is not None,
         )
         return chunk_id, result
 
     num_chunks = len(chunks)
-    with ThreadPoolExecutor(max_workers=LLM_CONCURRENCY) as pool:
-        chunk_futures = {
-            pool.submit(_analyze_one_chunk, cid, chunk): cid
-            for cid, chunk in enumerate(chunks, start=1)
-        }
+    chunk_pool = ThreadPoolExecutor(max_workers=concurrency)
+    chunk_futures = {
+        chunk_pool.submit(_analyze_one_chunk, cid, chunk): cid
+        for cid, chunk in enumerate(chunks, start=1)
+    }
+    try:
+        chunk_results: dict[int, dict] = {}
+        for future in as_completed(chunk_futures, timeout=remaining_budget()):
+            cid = chunk_futures[future]
+            chunk_results[cid] = future.result()[1]
+        chunk_analyses = [chunk_results[cid] for cid in sorted(chunk_results)]
+    except TimeoutError:
+        chunk_pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        chunk_pool.shutdown(wait=True)
+
+    source_scoped = {}
+    lane_call_counts: dict[str, int] = {}
+    if enable_source_lanes:
         source_lane_specs = [
             ("auth", analyze_auth_events, 1000),
             ("openstack", analyze_openstack_events, 2000),
             ("linux", analyze_linux_events, 3000),
             ("apache", analyze_apache_events, 4000),
         ]
-        source_futures = {}
-        for lane_name, lane_fn, id_base in source_lane_specs:
-            source_futures[lane_name] = pool.submit(
+        lane_pool = ThreadPoolExecutor(max_workers=concurrency)
+        lane_futures = {
+            lane_pool.submit(
                 lane_fn,
                 agent,
-                events,
+                deduplicated_events,
                 chunk_id=max(id_base, num_chunks + id_base - 999),
                 seed=None if seed is None else seed + id_base,
-            )
-
-        chunk_results: dict[int, dict] = {}
-        for future in as_completed(chunk_futures):
-            cid = chunk_futures[future]
-            chunk_results[cid] = future.result()[1]
-        chunk_analyses = [chunk_results[cid] for cid in sorted(chunk_results)]
-
-        source_scoped = {
-            name: fut.result() for name, fut in source_futures.items()
+                lane_chunk_size=chunk_size,
+                max_chunks=lane_max_chunks,
+                deadline_at=deadline_at,
+                compact_events=compact_events,
+            ): lane_name
+            for lane_name, lane_fn, id_base in source_lane_specs
         }
+        try:
+            for future in as_completed(lane_futures, timeout=remaining_budget()):
+                lane_name = lane_futures[future]
+                analyses, call_count = future.result()
+                source_scoped[lane_name] = analyses
+                lane_call_counts[lane_name] = call_count
+        except TimeoutError:
+            lane_pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        else:
+            lane_pool.shutdown(wait=True)
 
+    facts = extract_security_facts(deduplicated_events, max_lines=MAX_FACTS_BLOCK_LINES)
+    facts_block = format_facts_block(
+        facts,
+        total_chunks_shown=len(chunk_analyses),
+        total_chunks_available=len(chunk_analyses),
+    )
     correlation = agent.correlate(
         chunk_analyses=chunk_analyses,
-        source_scoped_analyses=source_scoped,
+        chunk_events=chunks,
+        source_scoped_analyses=source_scoped or None,
         source_agent_findings=source_agent_findings,
+        facts_block=facts_block,
+        fact_lines=facts,
         seed=seed,
+        selection_strategy=correlation_selection,
     )
+    selection_meta = dict(agent.last_correlation_selection)
 
     totals = Counter()
     for item in chunk_analyses:
-        totals.update(item.get("category_counts", {}))
+        totals.update(effective_category_counts(item))
 
     totals_dict = dict(sorted(totals.items()))
     return {
@@ -536,8 +654,17 @@ def run_llm_pipeline(
             "temperature": temperature,
             "seed": seed,
             "chunk_count": len(chunks),
+            "input_event_count": len(events),
+            "deduplicated_event_count": len(deduplicated_events),
+            "lane_call_counts": lane_call_counts,
+            "total_lane_calls": sum(lane_call_counts.values()),
+            "deadline_seconds": deadline_seconds,
             "retrieval_context": retrieval_context is not None,
             "retrieval_top_k": RETRIEVAL_TOP_K if retrieval_context is not None else 0,
+            "correlation_selection_strategy": selection_meta.get("strategy", correlation_selection),
+            "selected_correlation_chunk_ids": selection_meta.get("selected_chunk_ids", []),
+            "correlation_selection_note": selection_meta.get("selection_note", ""),
+            "started_at_utc": pipeline_t0.isoformat(),
         },
         "overview": build_overview(correlation=correlation, totals=totals_dict),
         "inference": llm.get_inference_telemetry(),
@@ -563,8 +690,16 @@ def run(
     chunk_size: int,
     chunk_strategy: str = "adaptive",
     max_lines: int,
+    enable_source_lanes: bool = False,
+    compact_events: bool = True,
+    correlation_selection: str = DEFAULT_CORRELATION_SELECTION,
+    cost_estimate_only: bool = False,
+    concurrency: int = 4,
+    deadline_seconds: int = 0,
+    lane_max_chunks: int = DEFAULT_LANE_MAX_CHUNKS,
     temperature: float,
     timeout_seconds: int,
+    correlation_timeout_seconds: int = CORRELATION_TIMEOUT_SECONDS,
     max_retries: int,
     seed: int | None,
     drop_low_signal: bool,
@@ -634,7 +769,39 @@ def run(
                     "(env or ~/.aws profile)"
                 )
 
-    if not skip_llm and not provider_ready:
+    if not skip_llm or cost_estimate_only:
+        correlation_model = models[0] if models else ""
+        chunk_model = (
+            BEDROCK_CHUNK_MODEL
+            if provider == "bedrock" and BEDROCK_CHUNK_MODEL_ID
+            else correlation_model
+        )
+        print(
+            format_cost_estimate(
+                estimate_pipeline_cost(
+                    event_count=len(events),
+                    chunk_model=chunk_model,
+                    correlation_model=correlation_model,
+                    chunk_size=chunk_size,
+                    lane_max_chunks=lane_max_chunks,
+                    source_lanes_enabled=enable_source_lanes,
+                )
+            )
+        )
+
+    if correlation_timeout_seconds < timeout_seconds:
+        print(
+            "Warning: correlation timeout is lower than chunk timeout.",
+            file=sys.stderr,
+        )
+
+    if cost_estimate_only:
+        report["llm_analysis"] = {
+            "status": "skipped",
+            "reason": "cost estimate only",
+        }
+
+    if not skip_llm and not cost_estimate_only and not provider_ready:
         if strict_llm:
             raise RuntimeError(
                 f"{provider_hint} is not set. Export it in your shell or add it to .env"
@@ -643,7 +810,7 @@ def run(
             "status": "skipped",
             "reason": f"{provider_hint} is not configured",
         }
-    elif not skip_llm:
+    elif not skip_llm and not cost_estimate_only:
         source_agent_findings = format_source_agent_findings(
             report.get("source_agents", {}).get("findings", [])
         )
@@ -656,8 +823,15 @@ def run(
             chunk_size=chunk_size,
             chunk_strategy=chunk_strategy,
             source_agent_findings=source_agent_findings,
+            enable_source_lanes=enable_source_lanes,
+            compact_events=compact_events,
+            correlation_selection=correlation_selection,
+            concurrency=concurrency,
+            deadline_seconds=deadline_seconds,
+            lane_max_chunks=lane_max_chunks,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
+            correlation_timeout_seconds=correlation_timeout_seconds,
             max_retries=max_retries,
             seed=seed,
         )
@@ -701,8 +875,44 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["fixed", "adaptive"],
     )
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument(
+        "--deadline-seconds",
+        type=int,
+        default=0,
+        help="Hard wall-clock limit for the LLM pipeline. 0 = no limit.",
+    )
+    parser.add_argument(
+        "--lane-max-chunks",
+        type=int,
+        default=DEFAULT_LANE_MAX_CHUNKS,
+        help="Max chunk analyses per source lane. 0 = unlimited.",
+    )
+    parser.add_argument(
+        "--enable-source-lanes",
+        action="store_true",
+        help="Run source-scoped LLM lanes in addition to temporal chunk analysis.",
+    )
+    parser.add_argument(
+        "--compact-events",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use compact event formatting for chunk analysis prompts.",
+    )
+    parser.add_argument(
+        "--correlation-selection",
+        default=DEFAULT_CORRELATION_SELECTION,
+        choices=["head", "stratified"],
+        help="How to choose chunk summaries for the final correlation prompt.",
+    )
+    parser.add_argument(
+        "--cost-estimate-only",
+        action="store_true",
+        help="Print the estimated LLM cost and skip model execution.",
+    )
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--correlation-timeout", type=int, default=CORRELATION_TIMEOUT_SECONDS)
     parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--drop-low-signal", action="store_true")
@@ -762,55 +972,59 @@ def resolve_provider_settings(
 
 if __name__ == "__main__":
     args = build_parser().parse_args()
-    try:
-        provider = args.provider
-        model, cli_models, api_key, region, provider_ready, provider_hint = (
-            resolve_provider_settings(provider, args.model)
-        )
+    provider = args.provider
+    model, cli_models, api_key, region, provider_ready, provider_hint = (
+        resolve_provider_settings(provider, args.model)
+    )
 
-        chunk_size = args.chunk_size
-        if chunk_size is None:
-            chunk_size = GROQ_CHUNK_SIZE if provider == "groq" else DEFAULT_CHUNK_SIZE
+    chunk_size = args.chunk_size
+    if chunk_size is None:
+        chunk_size = GROQ_CHUNK_SIZE if provider == "groq" else DEFAULT_CHUNK_SIZE
 
-        output_file = (
-            str(analysis_report_versioning(args.output_stem))
-            if args.output_stem
-            else args.output_file
-        )
+    output_file = (
+        str(analysis_report_versioning(args.output_stem))
+        if args.output_stem
+        else args.output_file
+    )
 
-        result = run(
-            log_file=args.log_file,
-            normalized_log_file=args.normalized_log_file,
-            output_file=output_file,
-            provider=provider,
-            models=cli_models,
-            api_key=api_key,
-            region=region,
-            chunk_size=chunk_size,
-            chunk_strategy=args.chunk_strategy,
-            max_lines=args.max_lines,
-            temperature=args.temperature,
-            timeout_seconds=args.timeout_seconds,
-            max_retries=args.max_retries,
-            seed=args.seed,
-            drop_low_signal=args.drop_low_signal,
-            ingest_if_needed=not args.skip_ingestion,
-            skip_llm=args.skip_llm,
-            strict_llm=args.strict_llm,
-            provider_ready=provider_ready,
-            provider_hint=provider_hint,
-        )
-        print(f"Wrote report: {output_file}")
-        print(f"Provider: {provider} | Model: {model}")
-        print(f"Input mode: {result['meta']['input_mode']}")
-        print(f"Events analyzed: {result['meta']['event_count']}")
-        llm_status = result.get("llm_analysis", {}).get("status", "completed")
-        print(f"LLM status: {llm_status}")
-        if llm_status == "skipped":
-            reason = result.get("llm_analysis", {}).get("reason", "unknown")
-            print(f"LLM reason: {reason}")
-        if result.get("input", {}).get("note"):
-            print(result["input"]["note"])
-    except Exception as exc:
-        print(f"Error: {exc}")
-        raise SystemExit(1) from exc
+    result = run(
+        log_file=args.log_file,
+        normalized_log_file=args.normalized_log_file,
+        output_file=output_file,
+        provider=provider,
+        models=cli_models,
+        api_key=api_key,
+        region=region,
+        chunk_size=chunk_size,
+        chunk_strategy=args.chunk_strategy,
+        max_lines=args.max_lines,
+        concurrency=args.concurrency,
+        deadline_seconds=args.deadline_seconds,
+        lane_max_chunks=args.lane_max_chunks,
+        enable_source_lanes=args.enable_source_lanes,
+        compact_events=args.compact_events,
+        correlation_selection=args.correlation_selection,
+        cost_estimate_only=args.cost_estimate_only,
+        temperature=args.temperature,
+        timeout_seconds=args.timeout_seconds,
+        correlation_timeout_seconds=args.correlation_timeout,
+        max_retries=args.max_retries,
+        seed=args.seed,
+        drop_low_signal=args.drop_low_signal,
+        ingest_if_needed=not args.skip_ingestion,
+        skip_llm=args.skip_llm,
+        strict_llm=args.strict_llm,
+        provider_ready=provider_ready,
+        provider_hint=provider_hint,
+    )
+    print(f"Wrote report: {output_file}")
+    print(f"Provider: {provider} | Model: {model}")
+    print(f"Input mode: {result['meta']['input_mode']}")
+    print(f"Events analyzed: {result['meta']['event_count']}")
+    llm_status = result.get("llm_analysis", {}).get("status", "completed")
+    print(f"LLM status: {llm_status}")
+    if llm_status == "skipped":
+        reason = result.get("llm_analysis", {}).get("reason", "unknown")
+        print(f"LLM reason: {reason}")
+    if result.get("input", {}).get("note"):
+        print(result["input"]["note"])

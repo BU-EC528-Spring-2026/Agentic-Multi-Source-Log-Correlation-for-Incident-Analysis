@@ -1,4 +1,5 @@
 import json
+import random
 import re
 import threading
 import time
@@ -17,6 +18,20 @@ def strip_markdown_fences(text: str) -> str:
     if match:
         return match.group(1).strip()
     return stripped
+
+
+def parse_json_object(text: str) -> dict:
+    """Parse a JSON object from text, tolerating preamble/trailing prose"""
+    
+    cleaned = strip_markdown_fences(text)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        return json.loads(cleaned[start : end + 1])
 
 
 def build_inference_telemetry(inference_calls: list[dict]) -> dict:
@@ -87,8 +102,90 @@ class InferenceClient(ABC):
     def get_inference_telemetry(self) -> dict: ...
 
 
+class TieredInferenceClient(InferenceClient):
+    def __init__(
+        self,
+        *,
+        chunk_client: InferenceClient,
+        correlation_client: InferenceClient,
+    ):
+        self.chunk_client = chunk_client
+        self.correlation_client = correlation_client
+
+    @property
+    def model(self) -> str:
+        return f"{self.chunk_client.model}/{self.correlation_client.model}"
+
+    @staticmethod
+    def _chunk_fallback_allowed(exc: RuntimeError) -> bool:
+        message = str(exc).lower()
+        markers = (
+            "structured output",
+            "invalid json",
+            "expected a json object",
+            "empty content",
+            "did not include structured content",
+            "structured output",
+            "non-json response body",
+            "response missing",
+            "missing choices",
+        )
+        return any(marker in message for marker in markers)
+
+    def chat_structured(
+        self,
+        *,
+        schema: dict,
+        system_prompt: str,
+        user_prompt: str,
+        seed: Optional[int] = None,
+        telemetry: Optional[dict] = None,
+        tier: str = "chunk",
+    ) -> dict:
+        if tier == "chunk":
+            client = self.chunk_client
+        elif tier == "correlation":
+            client = self.correlation_client
+        else:
+            raise ValueError(f"Unknown inference tier: {tier}")
+
+        call_telemetry = dict(telemetry or {})
+        call_telemetry["tier"] = tier
+        try:
+            return client.chat_structured(
+                schema=schema,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                seed=seed,
+                telemetry=call_telemetry,
+            )
+        except RuntimeError as exc:
+            if tier != "chunk" or not self._chunk_fallback_allowed(exc):
+                raise
+            fallback_telemetry = dict(call_telemetry)
+            fallback_telemetry["fallback_from_model"] = self.chunk_client.model
+            return self.correlation_client.chat_structured(
+                schema=schema,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                seed=seed,
+                telemetry=fallback_telemetry,
+            )
+
+    def get_inference_telemetry(self) -> dict:
+        calls: list[dict] = []
+        for client in (self.chunk_client, self.correlation_client):
+            telemetry = client.get_inference_telemetry()
+            client_calls = telemetry.get("calls", [])
+            if isinstance(client_calls, list):
+                calls.extend(dict(item) for item in client_calls if isinstance(item, dict))
+        return build_inference_telemetry(calls)
+
+
 class OpenRouterClient(InferenceClient):
     BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+    base_delay = 0.5
+    max_delay = 8.0
 
     def __init__(
         self,
@@ -127,8 +224,8 @@ class OpenRouterClient(InferenceClient):
         self._inference_lock = threading.Lock()
 
     @staticmethod
-    def build_http_error_message(status: int | None, detail: str) -> str:
-        message = f"OpenRouter API error ({status or '?'}): {detail}"
+    def build_http_error_message(status: int | None) -> str:
+        message = f"OpenRouter API error ({status or '?'})"
         if status == 404:
             message += (
                 " Check https://openrouter.ai/settings/privacy on the same account "
@@ -200,12 +297,9 @@ class OpenRouterClient(InferenceClient):
                     break
                 except request_exceptions.HTTPError as exc:
                     status = exc.response.status_code if exc.response is not None else None
-                    detail = self.preview_text(
-                        exc.response.text if exc.response is not None else str(exc)
-                    )
-                    error = RuntimeError(self.build_http_error_message(status, detail))
+                    error = RuntimeError(self.build_http_error_message(status))
                     if status == 404:
-                        routing_errors.append(f"{model_id}: {detail[:240]}")
+                        routing_errors.append(f"{model_id}: 404")
                         last_error = error
                         break
                     if status != 429 and (status is None or status < 500):
@@ -234,8 +328,7 @@ class OpenRouterClient(InferenceClient):
         try:
             body = response.json()
         except ValueError as exc:
-            detail = self.preview_text(getattr(response, "text", ""))
-            raise RuntimeError(f"OpenRouter returned a non-JSON response body: {detail}") from exc
+            raise RuntimeError("OpenRouter returned a non-JSON response body") from exc
 
         if not isinstance(body, dict):
             raise RuntimeError(
@@ -317,16 +410,11 @@ class OpenRouterClient(InferenceClient):
             return build_inference_telemetry(list(self.inference_calls))
 
     def retry_delay_seconds(self, attempt_number: int) -> float:
-        return 0.4 * attempt_number
-
-    def preview_text(self, value: str) -> str:
-        text = str(value).strip()
-        if not text:
-            return "<empty response body>"
-        return text[:300]
-
+        return min(self.base_delay * (2 ** (attempt_number - 1)), self.max_delay) + random.uniform(0, 0.5)
 
 class GroqClient(InferenceClient):
+    base_delay = 0.5
+    max_delay = 8.0
     def __init__(
         self,
         *,
@@ -421,11 +509,9 @@ class GroqClient(InferenceClient):
                 last_error = RuntimeError(f"Groq returned invalid JSON: {exc.msg}")
             except RuntimeError as exc:
                 last_error = exc
-            except Exception as exc:
-                last_error = RuntimeError(f"Groq API error: {exc}")
 
             if attempt < total_attempts:
-                time.sleep(0.4 * attempt)
+                time.sleep(self._retry_delay_seconds(attempt))
 
         raise RuntimeError(
             f"Groq: all {total_attempts} attempt(s) failed. Last error: {last_error}"
@@ -469,8 +555,14 @@ class GroqClient(InferenceClient):
         with self._inference_lock:
             return build_inference_telemetry(list(self.inference_calls))
 
+    def _retry_delay_seconds(self, attempt_number: int) -> float:
+        return min(self.base_delay * (2 ** (attempt_number - 1)), self.max_delay) + random.uniform(0, 0.5)
+
 
 class BedrockClient(InferenceClient):
+    base_delay = 0.5
+    max_delay = 8.0
+
     def __init__(
         self,
         *,
@@ -504,6 +596,88 @@ class BedrockClient(InferenceClient):
         self._boto_config = Config(read_timeout=timeout_seconds, connect_timeout=timeout_seconds)
         self._boto3 = boto3
         self._tls = threading.local()
+
+    @staticmethod
+    def _grammar_too_large_message(exc: Exception) -> bool:
+        message = str(exc).lower()
+        return (
+            "validationexception" in message
+            and "compiled grammar is too large" in message
+        )
+
+    @staticmethod
+    def _json_prompt(schema: dict, user_prompt: str) -> str:
+        return (
+            user_prompt
+            + "\n\nRespond with ONLY valid JSON matching this schema. Do not add markdown fences or commentary.\n"
+            + json.dumps(schema, separators=(",", ":"))
+        )
+
+    def _converse_json_text(
+        self,
+        *,
+        schema: dict,
+        system_prompt: str,
+        user_prompt: str,
+        telemetry: Optional[dict],
+    ) -> dict:
+        payload = {
+            "modelId": self.model,
+            "system": [{"text": system_prompt}],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": self._json_prompt(schema, user_prompt)}],
+                }
+            ],
+            "inferenceConfig": {
+                "temperature": self.temperature,
+                "maxTokens": 16384,
+            },
+        }
+        fallback_telemetry = dict(telemetry or {})
+        fallback_telemetry["structured_fallback"] = "json_text"
+
+        total_attempts = max(1, self.max_retries + 1)
+        last_error: Optional[Exception] = None
+        last_snippet: str = ""
+
+        for attempt in range(1, total_attempts + 1):
+            try:
+                started_at = time.perf_counter()
+                response = self._client.converse(**payload)
+                latency_ms = (time.perf_counter() - started_at) * 1000
+                content = self._extract_text(response)
+                if not content:
+                    raise RuntimeError("Bedrock returned empty content")
+                last_snippet = content[:200]
+                parsed = parse_json_object(content)
+                if not isinstance(parsed, dict):
+                    raise RuntimeError(
+                        f"Bedrock returned {type(parsed).__name__}, expected a JSON object"
+                    )
+                self._record_call(
+                    response=response,
+                    latency_ms=latency_ms,
+                    attempt=attempt,
+                    telemetry=fallback_telemetry,
+                )
+                return parsed
+            except json.JSONDecodeError as exc:
+                snippet = last_snippet.replace("\n", " ")
+                last_error = RuntimeError(
+                    f"Bedrock fallback returned invalid JSON: {exc.msg} "
+                    f"(snippet: {snippet!r})"
+                )
+            except RuntimeError as exc:
+                last_error = exc
+            except self._client_error_types as exc:
+                last_error = RuntimeError(f"Bedrock API error: {exc}")
+
+            if attempt < total_attempts:
+                time.sleep(self._retry_delay_seconds(attempt))
+
+        raise last_error or RuntimeError("Bedrock fallback failed without an error")
 
     @property
     def _client(self):
@@ -573,8 +747,7 @@ class BedrockClient(InferenceClient):
                 content = self._extract_text(response)
                 if not content:
                     raise RuntimeError("Bedrock returned empty content")
-                cleaned = strip_markdown_fences(content)
-                parsed = json.loads(cleaned)
+                parsed = parse_json_object(content)
                 if not isinstance(parsed, dict):
                     raise RuntimeError(
                         f"Bedrock returned {type(parsed).__name__}, expected a JSON object"
@@ -590,14 +763,26 @@ class BedrockClient(InferenceClient):
             except json.JSONDecodeError as exc:
                 last_error = RuntimeError(f"Bedrock returned invalid JSON: {exc.msg}")
             except RuntimeError as exc:
+                if self._grammar_too_large_message(exc):
+                    return self._converse_json_text(
+                        schema=schema,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        telemetry=telemetry,
+                    )
                 last_error = exc
             except self._client_error_types as exc:
+                if self._grammar_too_large_message(exc):
+                    return self._converse_json_text(
+                        schema=schema,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        telemetry=telemetry,
+                    )
                 last_error = RuntimeError(f"Bedrock API error: {exc}")
-            except Exception as exc:
-                last_error = RuntimeError(f"Bedrock request failed: {exc}")
 
             if attempt < total_attempts:
-                time.sleep(0.4 * attempt)
+                time.sleep(self._retry_delay_seconds(attempt))
 
         raise RuntimeError(
             f"Bedrock: all {total_attempts} attempt(s) failed. Last error: {last_error}"
@@ -701,8 +886,11 @@ class BedrockClient(InferenceClient):
         with self._inference_lock:
             return build_inference_telemetry(list(self.inference_calls))
 
+    def _retry_delay_seconds(self, attempt_number: int) -> float:
+        return min(self.base_delay * (2 ** (attempt_number - 1)), self.max_delay) + random.uniform(0, 0.5)
 
-def create_client(
+
+def _create_single_client(
     *,
     provider: str = "bedrock",
     models: Sequence[str] = (),
@@ -733,6 +921,51 @@ def create_client(
     return OpenRouterClient(
         models=models,
         api_key=api_key,
+        temperature=temperature,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+    )
+
+
+def create_client(
+    *,
+    provider: str = "bedrock",
+    models: Sequence[str] = (),
+    chunk_model: str = "",
+    api_key: str,
+    region: str = "",
+    temperature: float,
+    timeout_seconds: int,
+    max_retries: int,
+    correlation_timeout_seconds: int | None = None,
+) -> InferenceClient:
+    correlation_timeout = correlation_timeout_seconds or timeout_seconds
+    if str(chunk_model).strip():
+        return TieredInferenceClient(
+            chunk_client=_create_single_client(
+                provider=provider,
+                models=[str(chunk_model).strip()],
+                api_key=api_key,
+                region=region,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                max_retries=max_retries,
+            ),
+            correlation_client=_create_single_client(
+                provider=provider,
+                models=models,
+                api_key=api_key,
+                region=region,
+                temperature=temperature,
+                timeout_seconds=correlation_timeout,
+                max_retries=max_retries,
+            ),
+        )
+    return _create_single_client(
+        provider=provider,
+        models=models,
+        api_key=api_key,
+        region=region,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,

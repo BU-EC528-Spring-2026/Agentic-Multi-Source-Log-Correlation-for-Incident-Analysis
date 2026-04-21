@@ -53,6 +53,7 @@ def build_dataset_paths(data_root: Path) -> dict[str, Path]:
 
 DATA_ROOT = resolve_data_root()
 DATA_ROOT_LABEL = os.path.relpath(DATA_ROOT, REPO_ROOT)
+INGESTION_DEFAULT_YEAR = int(os.environ.get("INGESTION_DEFAULT_YEAR", "2015"))
 
 DATASET_PATHS: dict[str, Path] = build_dataset_paths(DATA_ROOT)
 
@@ -105,7 +106,7 @@ def parse_openstack(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def parse_openssh(df: pd.DataFrame, year: int = 2015) -> pd.DataFrame:
+def parse_openssh(df: pd.DataFrame, year: int = INGESTION_DEFAULT_YEAR) -> pd.DataFrame:
     """Parse OpenSSH CSV: Date (month) + Day + Time with assumed year → `_ts`."""
     df = df.copy()
     ts_str = (
@@ -120,7 +121,7 @@ def parse_openssh(df: pd.DataFrame, year: int = 2015) -> pd.DataFrame:
     return df
 
 
-def parse_linux(df: pd.DataFrame, year: int = 2015) -> pd.DataFrame:
+def parse_linux(df: pd.DataFrame, year: int = INGESTION_DEFAULT_YEAR) -> pd.DataFrame:
     """Parse Linux CSV: Month + Date + Time with assumed year → `_ts`."""
     df = df.copy()
     ts_str = (
@@ -304,7 +305,10 @@ def load_and_normalize_openstack(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def load_and_normalize_openssh(path: Path, year: int = 2015) -> list[dict[str, Any]]:
+def load_and_normalize_openssh(
+    path: Path,
+    year: int = INGESTION_DEFAULT_YEAR,
+) -> list[dict[str, Any]]:
     """Load OpenSSH structured CSV and return list of normalized records."""
     log = logging.getLogger(__name__)
     log.info("Loading OpenSSH dataset from %s", path)
@@ -333,7 +337,10 @@ def load_and_normalize_openssh(path: Path, year: int = 2015) -> list[dict[str, A
     return records
 
 
-def load_and_normalize_linux(path: Path, year: int = 2015) -> list[dict[str, Any]]:
+def load_and_normalize_linux(
+    path: Path,
+    year: int = INGESTION_DEFAULT_YEAR,
+) -> list[dict[str, Any]]:
     """Load Linux structured CSV and return list of normalized records."""
     log = logging.getLogger(__name__)
     log.info("Loading Linux dataset from %s", path)
@@ -412,7 +419,7 @@ def load_all_datasets(datasets: dict[str, Path]) -> tuple[list[dict[str, Any]], 
             raise FileNotFoundError(f"Dataset not found: {path}")
         loader = loaders[name]
         if name in ("openssh", "linux"):
-            records = loader(path, year=2015)
+            records = loader(path, year=INGESTION_DEFAULT_YEAR)
         else:
             records = loader(path)
         per_dataset[name] = records
