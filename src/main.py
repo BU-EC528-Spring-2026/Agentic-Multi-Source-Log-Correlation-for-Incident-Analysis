@@ -48,7 +48,6 @@ from src.core.config import (
     RETRIEVAL_TOP_K,
     bedrock_configured,
 )
-from src.core.cost import estimate_pipeline_cost, format_cost_estimate
 from src.core.correlation_facts import extract_security_facts, format_facts_block
 from src.core.dedup import deduplicate_events
 from src.core.log_event import (
@@ -693,7 +692,6 @@ def run(
     enable_source_lanes: bool = False,
     compact_events: bool = True,
     correlation_selection: str = DEFAULT_CORRELATION_SELECTION,
-    cost_estimate_only: bool = False,
     concurrency: int = 4,
     deadline_seconds: int = 0,
     lane_max_chunks: int = DEFAULT_LANE_MAX_CHUNKS,
@@ -769,39 +767,13 @@ def run(
                     "(env or ~/.aws profile)"
                 )
 
-    if not skip_llm or cost_estimate_only:
-        correlation_model = models[0] if models else ""
-        chunk_model = (
-            BEDROCK_CHUNK_MODEL
-            if provider == "bedrock" and BEDROCK_CHUNK_MODEL_ID
-            else correlation_model
-        )
-        print(
-            format_cost_estimate(
-                estimate_pipeline_cost(
-                    event_count=len(events),
-                    chunk_model=chunk_model,
-                    correlation_model=correlation_model,
-                    chunk_size=chunk_size,
-                    lane_max_chunks=lane_max_chunks,
-                    source_lanes_enabled=enable_source_lanes,
-                )
-            )
-        )
-
     if correlation_timeout_seconds < timeout_seconds:
         print(
             "Warning: correlation timeout is lower than chunk timeout.",
             file=sys.stderr,
         )
 
-    if cost_estimate_only:
-        report["llm_analysis"] = {
-            "status": "skipped",
-            "reason": "cost estimate only",
-        }
-
-    if not skip_llm and not cost_estimate_only and not provider_ready:
+    if not skip_llm and not provider_ready:
         if strict_llm:
             raise RuntimeError(
                 f"{provider_hint} is not set. Export it in your shell or add it to .env"
@@ -810,7 +782,7 @@ def run(
             "status": "skipped",
             "reason": f"{provider_hint} is not configured",
         }
-    elif not skip_llm and not cost_estimate_only:
+    elif not skip_llm:
         source_agent_findings = format_source_agent_findings(
             report.get("source_agents", {}).get("findings", [])
         )
@@ -904,11 +876,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CORRELATION_SELECTION,
         choices=["head", "stratified"],
         help="How to choose chunk summaries for the final correlation prompt.",
-    )
-    parser.add_argument(
-        "--cost-estimate-only",
-        action="store_true",
-        help="Print the estimated LLM cost and skip model execution.",
     )
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -1004,7 +971,6 @@ if __name__ == "__main__":
         enable_source_lanes=args.enable_source_lanes,
         compact_events=args.compact_events,
         correlation_selection=args.correlation_selection,
-        cost_estimate_only=args.cost_estimate_only,
         temperature=args.temperature,
         timeout_seconds=args.timeout_seconds,
         correlation_timeout_seconds=args.correlation_timeout,
