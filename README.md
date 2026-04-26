@@ -71,16 +71,18 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
    - Linux system agent (kernel/resource/storage runtime failures)
    - Apache access agent (HTTP error and suspicious path access patterns)
 4. **Run deterministic correlation** over the canonical events.
-5. **Optionally run LLM-based analysis** through **Amazon Bedrock** (or Groq / OpenRouter):
+5. **Run LLM-based analysis when configured** through **Amazon Bedrock** (or Groq / OpenRouter):
    - Chunk analyses run in parallel (up to 4 concurrent LLM calls).
-   - Four source-scoped LLM passes (auth, openstack, linux, apache) run in parallel alongside chunks.
-   - A single correlation pass synthesizes all chunk + source-scoped + rule-based findings into structured hypotheses with cross-source evidence, benign alternatives, counterevidence, and falsifiability criteria.
+   - With `--enable-source-lanes`: four source-scoped LLM passes (auth, openstack, linux, apache) run in parallel alongside chunks.
+   - A single correlation pass synthesizes all chunk + rule-based findings (and source-scoped analyses when enabled) into structured hypotheses with cross-source evidence, benign alternatives, counterevidence, and falsifiability criteria.
 6. Generated analysis report can be found in `reports/report.json`.
 
 ## Project Layout
 
 - `src/main.py`: integrated pipeline entrypoint
+- `src/core/`: pipeline configuration, LLM client abstraction, log event types, and shared utilities
 - `src/ingestion/ingest_logs.py`: normalize structured CSV datasets into unified JSONL
+- `src/agents/orchestrator_agent.py`: dispatches and aggregates all source-specific rule-based agents
 - `src/agents/auth_agent.py`: auth anomaly detection
 - `src/agents/openstack_vm_agent.py`: OpenStack VM anomaly detection
 - `src/agents/linux_system_agent.py`: Linux system anomaly detection
@@ -131,7 +133,7 @@ On Windows, use cmd (`set AWS_REGION=us-east-1`, `set BEDROCK_MODEL_ID=...`) or 
 
 ## Workflow
 
-Ingest, build the retrieval index, then run Bedrock-backed `main` (same sequence as `reports/sonnet_report.json`). Step 4 needs [AWS Bedrock setup](#aws-bedrock-setup).
+Ingest, build the retrieval index, then run Bedrock-backed `main`. Step 4 needs [AWS Bedrock setup](#aws-bedrock-setup).
 
 From the **repository root**, with the venv activated:
 
@@ -166,7 +168,7 @@ To use a different output path with Make, run step 4 manually as shown.
 
 ## How To Run
 
-### Deterministic only (no Bedrock, fast)
+### Quick local run
 
 ```bash
 python -m src.main --skip-llm
@@ -233,7 +235,7 @@ The generated report includes:
 - deterministic correlation groups
 - optional LLM analysis with:
   - chunk-level summaries
-  - four source-scoped analyses (auth, openstack, linux, apache)
+  - four source-scoped analyses (auth, openstack, linux, apache) when `--enable-source-lanes` is set
   - structured correlation hypotheses with ordered narratives, cross-source evidence, confidence scores, counterevidence, falsifiability criteria, and benign/alternate explanations
 
 Default output file:
