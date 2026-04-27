@@ -8,54 +8,7 @@ The current implementation supports an integrated pipeline in [src/main.py](src/
 
 ### Pipeline Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              INPUT SOURCES                                      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│      normalized/unified_logs.jsonl  │  LogHub CSVs  │  Raw log file             │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           LOG EVENT NORMALIZATION                               │
-│         (Canonical logging: timestamp, source, message, metadata)               │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                      │
-        ┌─────────────────────────────┼─────────────────────────────┐
-        │                             │                             │
-        ▼                             ▼                             ▼
-┌───────────────┐          ┌──────────────────┐          ┌──────────────────────┐
-│  DETERMINISTIC│          │  RULE-BASED      │          │  LLM-BASED ANALYSIS  │
-│  CORRELATION  │          │  SOURCE AGENTS   │          │  (Parallel Lanes)    │
-│  (msg_sim)    │          │                  │          │                      │
-│               │          │ • Auth Agent     │          │ ┌──────────────────┐ │
-│               │          │ • OpenStack      │          │ │ Temporal Chunks  │ │
-│               │          │   VM Agent       │          │ │ (base analysis)  │ │
-│               │          │ • Linux System   │          │ └──────────────────┘ │
-│               │          │   Agent          │          │ ┌──────────────────┐ │
-│               │          │ • Apache Access  │          │ │ Auth-scoped      │ │
-│               │          │   Agent          │          │ │ OpenStack-scoped │ │
-│               │          │                  │          │ │ Linux-scoped     │ │
-│               │          │ HIGH/MEDIUM      │          │ │ Apache-scoped    │ │
-│               │          │ findings         │          │ └──────────────────┘ │
-└───────┬───────┘          └─────────┬────────┘          └──────────┬───────────┘
-        │                            │                              │
-        └────────────────────────────┼──────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    LLM CORRELATION & SYNTHESIS                                  │
-│  Synthesizes: chunk analyses + source-scoped analyses + rule-based findings     │
-│  Outputs: structured hypotheses with confidence, evidence, alternatives,        │
-│           counterevidence, and falsifiability criteria                          │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         REPORT GENERATION                                       │
-│                        reports/report.json                                      |
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Pipeline architecture](docs/architecture.png)
 
 ### Processing Steps
 
